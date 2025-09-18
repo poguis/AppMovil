@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/debt_loan_service.dart';
 import '../models/debt_loan.dart';
+import '../widgets/debt_loan_dialog.dart';
 
 class DebtsLoansPage extends StatefulWidget {
   const DebtsLoansPage({super.key});
@@ -55,6 +56,56 @@ class _DebtsLoansPageState extends State<DebtsLoansPage> {
 
   String _getTypeText(String type) {
     return type == 'debt' ? 'Debo' : 'Me deben';
+  }
+
+  Future<void> _showAddDebtLoanDialog(String type) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => DebtLoanDialog(type: type),
+    );
+
+    if (result != null) {
+      final currentUser = AuthService.currentUser;
+      if (currentUser != null) {
+        try {
+          final debtLoan = DebtLoan(
+            userId: currentUser.id!,
+            personName: result['personName'] as String,
+            amount: result['amount'] as double,
+            type: type,
+            description: result['description'] as String?,
+            dateCreated: DateTime.now(),
+            isPaid: false,
+          );
+
+          await DebtLoanService.createDebtLoan(debtLoan);
+          await _loadData(); // Recargar los datos
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  type == 'debt' 
+                    ? 'Deuda agregada exitosamente' 
+                    : 'Préstamo agregado exitosamente'
+                ),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Error al agregar el registro'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      }
+    }
   }
 
   @override
@@ -190,6 +241,66 @@ class _DebtsLoansPageState extends State<DebtsLoansPage> {
                 ),
               ],
             ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          showModalBottomSheet(
+            context: context,
+            builder: (context) => Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Agregar Nuevo',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showAddDebtLoanDialog('debt');
+                          },
+                          icon: const Icon(Icons.money_off),
+                          label: const Text('Deuda'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _showAddDebtLoanDialog('loan');
+                          },
+                          icon: const Icon(Icons.account_balance_wallet),
+                          label: const Text('Préstamo'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('Agregar'),
+      ),
     );
   }
 
