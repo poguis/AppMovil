@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 class DebtLoanDialog extends StatefulWidget {
   final String type; // 'debt' o 'loan'
+  final Map<String, dynamic>? initialData; // Para edición
 
   const DebtLoanDialog({
     super.key,
     required this.type,
+    this.initialData,
   });
 
   @override
@@ -19,6 +21,17 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
   final _descriptionController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Pre-llenar campos si estamos editando
+    if (widget.initialData != null) {
+      _personNameController.text = widget.initialData!['personName'] ?? '';
+      _amountController.text = widget.initialData!['amount']?.toString() ?? '';
+      _descriptionController.text = widget.initialData!['description'] ?? '';
+    }
+  }
+
+  @override
   void dispose() {
     _personNameController.dispose();
     _amountController.dispose();
@@ -29,7 +42,10 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
   @override
   Widget build(BuildContext context) {
     final isDebt = widget.type == 'debt';
-    final title = isDebt ? 'Agregar Deuda' : 'Agregar Préstamo';
+    final isEditing = widget.initialData != null;
+    final title = isEditing 
+        ? (isDebt ? 'Editar Deuda' : 'Editar Préstamo')
+        : (isDebt ? 'Agregar Deuda' : 'Agregar Préstamo');
     final personLabel = isDebt ? 'Persona a la que debo' : 'Persona que me debe';
 
     return AlertDialog(
@@ -128,3 +144,4 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
     }
   }
 }
+

@@ -52,4 +52,17 @@ class PersonService {
 
     return result.first['total'] as double? ?? 0.0;
   }
+
+  // Obtener personas que tienen monto pendiente (solo las que realmente me deben o debo)
+  static Future<List<String>> getPersonsWithPendingAmount(int userId, String type) async {
+    final db = await DatabaseService.database;
+    final result = await db.rawQuery('''
+      SELECT DISTINCT person_name 
+      FROM debts_loans 
+      WHERE user_id = ? AND type = ? AND is_paid = 0 AND amount > 0
+      ORDER BY person_name ASC
+    ''', [userId, type]);
+
+    return result.map((row) => row['person_name'] as String).toList();
+  }
 }

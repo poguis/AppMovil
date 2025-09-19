@@ -18,6 +18,9 @@ class _DineroPageState extends State<DineroPage> {
   double _currentMoney = 0.0;
   bool _isLoading = true;
   List<Map<String, dynamic>> _transactions = [];
+  DateTime? _startDate;
+  DateTime? _endDate;
+  List<Map<String, dynamic>> _filteredTransactions = [];
 
   @override
   void initState() {
@@ -36,6 +39,7 @@ class _DineroPageState extends State<DineroPage> {
     setState(() {
       _currentMoney = money;
       _transactions = transactions;
+      _filteredTransactions = transactions;
       _isLoading = false;
     });
 
@@ -103,15 +107,19 @@ class _DineroPageState extends State<DineroPage> {
           );
 
           // Guardar la transacción (esto también actualiza el dinero automáticamente)
-          await TransactionService.createTransaction(transaction);
+          await TransactionService.createTransaction(
+            transaction,
+            personName: result['person'] as String?,
+          );
           
           // Recargar el dinero actual y las transacciones
-          final newMoney = await MoneyService.getCurrentMoney(currentUser.id!);
-          final newTransactions = await TransactionService.getTransactionsWithCategory(currentUser.id!, limit: 10);
-          setState(() {
-            _currentMoney = newMoney;
-            _transactions = newTransactions;
-          });
+                final newMoney = await MoneyService.getCurrentMoney(currentUser.id!);
+                final newTransactions = await TransactionService.getTransactionsWithCategory(currentUser.id!, limit: 10);
+                setState(() {
+                  _currentMoney = newMoney;
+                  _transactions = newTransactions;
+                });
+                _applyDateFilter(); // Aplicar filtro después de agregar nueva transacción
 
           // Mostrar mensaje de éxito
           if (mounted) {
@@ -142,6 +150,76 @@ class _DineroPageState extends State<DineroPage> {
 
   String _formatMoney(double amount) {
     return '\$${amount.toStringAsFixed(2)}';
+  }
+
+  void _applyDateFilter() {
+    if (_startDate == null && _endDate == null) {
+      _filteredTransactions = _transactions;
+    } else {
+      _filteredTransactions = _transactions.where((transaction) {
+        final transactionDate = DateTime.parse(transaction['date'] as String);
+        
+        if (_startDate != null && transactionDate.isBefore(_startDate!)) {
+          return false;
+        }
+        
+        if (_endDate != null && transactionDate.isAfter(_endDate!.add(const Duration(days: 1)))) {
+          return false;
+        }
+        
+        return true;
+      }).toList();
+    }
+    setState(() {});
+  }
+
+  Future<void> _selectDateRange() async {
+    // Obtener la fecha del primer registro
+    DateTime firstDate = DateTime(2020);
+    if (_transactions.isNotEmpty) {
+      final firstTransaction = _transactions.reduce((a, b) {
+        final dateA = DateTime.parse(a['date'] as String);
+        final dateB = DateTime.parse(b['date'] as String);
+        return dateA.isBefore(dateB) ? a : b;
+      });
+      firstDate = DateTime.parse(firstTransaction['date'] as String);
+    }
+
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: firstDate,
+      lastDate: DateTime.now(),
+      initialDateRange: _startDate != null && _endDate != null 
+          ? DateTimeRange(start: _startDate!, end: _endDate!)
+          : null,
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked.start;
+        _endDate = picked.end;
+      });
+      _applyDateFilter();
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _startDate = null;
+      _endDate = null;
+      _filteredTransactions = _transactions;
+    });
+  }
+
+  void _setLast7DaysFilter() {
+    final now = DateTime.now();
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
+    
+    setState(() {
+      _startDate = sevenDaysAgo;
+      _endDate = now;
+    });
+    _applyDateFilter();
   }
 
   @override
@@ -282,16 +360,82 @@ class _DineroPageState extends State<DineroPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Historial de Transacciones',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Historial',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_startDate != null || _endDate != null) ...[
+                                  IconButton(
+                                    onPressed: _clearDateFilter,
+                                    icon: const Icon(Icons.clear, size: 18),
+                                    tooltip: 'Limpiar filtro',
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: Colors.grey.withValues(alpha: 0.1),
+                                      minimumSize: const Size(36, 36),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                                IconButton(
+                                  onPressed: _setLast7DaysFilter,
+                                  icon: const Icon(Icons.calendar_today, size: 18),
+                                  tooltip: 'Últimos 7 días',
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.blue.withValues(alpha: 0.1),
+                                    minimumSize: const Size(36, 36),
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  onPressed: _selectDateRange,
+                                  icon: const Icon(Icons.date_range, size: 18),
+                                  tooltip: 'Filtrar por fecha',
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.green.withValues(alpha: 0.1),
+                                    minimumSize: const Size(36, 36),
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
+                        if (_startDate != null || _endDate != null) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              _startDate != null && _endDate != null
+                                  ? '${_startDate!.day}/${_startDate!.month}/${_startDate!.year} - ${_endDate!.day}/${_endDate!.month}/${_endDate!.year}'
+                                  : _startDate != null
+                                      ? 'Desde: ${_startDate!.day}/${_startDate!.month}/${_startDate!.year}'
+                                      : 'Hasta: ${_endDate!.day}/${_endDate!.month}/${_endDate!.year}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         Expanded(
-                          child: _transactions.isEmpty
+                          child: _filteredTransactions.isEmpty
                               ? const Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -313,9 +457,9 @@ class _DineroPageState extends State<DineroPage> {
                                   ),
                                 )
                               : ListView.builder(
-                                  itemCount: _transactions.length,
+                                  itemCount: _filteredTransactions.length,
                                   itemBuilder: (context, index) {
-                                    final transaction = _transactions[index];
+                                    final transaction = _filteredTransactions[index];
                                     final isIncome = transaction['type'] == 'income';
                                     final amount = transaction['amount'] as double;
                                     final categoryName = transaction['category_name'] as String? ?? 'Sin categoría';

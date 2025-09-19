@@ -70,13 +70,24 @@ class DebtLoanService {
     );
   }
 
+  // Actualizar deuda o préstamo
+  static Future<void> updateDebtLoan(DebtLoan debtLoan) async {
+    final db = await DatabaseService.database;
+    await db.update(
+      'debts_loans',
+      debtLoan.toMap(),
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [debtLoan.id, debtLoan.userId],
+    );
+  }
+
   // Eliminar deuda o préstamo
-  static Future<void> deleteDebtLoan(int debtLoanId, int userId) async {
+  static Future<void> deleteDebtLoan(int debtLoanId) async {
     final db = await DatabaseService.database;
     await db.delete(
       'debts_loans',
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [debtLoanId, userId],
+      where: 'id = ?',
+      whereArgs: [debtLoanId],
     );
   }
 

@@ -61,6 +61,21 @@ class CategoryService {
     return null;
   }
 
+  // Obtener categoría por nombre y tipo
+  static Future<Category?> getCategoryByName(String name, String type, {int? userId}) async {
+    final db = await DatabaseService.database;
+    final result = await db.query(
+      'categories',
+      where: 'name = ? AND type = ? AND (user_id = ? OR user_id IS NULL)',
+      whereArgs: [name, type, userId],
+    );
+
+    if (result.isNotEmpty) {
+      return Category.fromMap(result.first);
+    }
+    return null;
+  }
+
   // Eliminar categoría personalizada
   static Future<void> deleteCategory(int id) async {
     final db = await DatabaseService.database;
