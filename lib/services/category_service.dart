@@ -16,6 +16,19 @@ class CategoryService {
     return result.map((map) => Category.fromMap(map)).toList();
   }
 
+  // Obtener categorías personalizadas por tipo (excluyendo las base)
+  static Future<List<Category>> getCustomCategoriesByType(String type, {int? userId}) async {
+    final db = await DatabaseService.database;
+    final result = await db.query(
+      'categories',
+      where: 'type = ? AND (user_id = ? OR user_id IS NULL) AND is_default = 0',
+      whereArgs: [type, userId],
+      orderBy: 'name ASC',
+    );
+
+    return result.map((map) => Category.fromMap(map)).toList();
+  }
+
   // Obtener todas las categorías
   static Future<List<Category>> getAllCategories({int? userId}) async {
     final db = await DatabaseService.database;

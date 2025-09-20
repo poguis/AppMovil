@@ -117,20 +117,12 @@ class DatabaseService {
   // Insertar categorías por defecto
   static Future<void> _insertDefaultCategories(Database db) async {
     final defaultCategories = [
-      {'name': 'Salario', 'type': 'income', 'color': '#4CAF50', 'icon': 'work', 'is_default': 1},
-      {'name': 'Venta', 'type': 'income', 'color': '#8BC34A', 'icon': 'sell', 'is_default': 1},
-      {'name': 'Regalo', 'type': 'income', 'color': '#FF9800', 'icon': 'card_giftcard', 'is_default': 1},
-      {'name': 'Otro Ingreso', 'type': 'income', 'color': '#4CAF50', 'icon': 'add_circle', 'is_default': 1},
+      // Categorías base para agregar dinero (income)
+      {'name': 'Me deben', 'type': 'income', 'color': '#4CAF50', 'icon': 'account_balance_wallet', 'is_default': 1},
+      {'name': 'Préstamos', 'type': 'income', 'color': '#FF9800', 'icon': 'money', 'is_default': 1},
       
-      {'name': 'Comida', 'type': 'expense', 'color': '#F44336', 'icon': 'restaurant', 'is_default': 1},
-      {'name': 'Transporte', 'type': 'expense', 'color': '#2196F3', 'icon': 'directions_car', 'is_default': 1},
-      {'name': 'Entretenimiento', 'type': 'expense', 'color': '#9C27B0', 'icon': 'movie', 'is_default': 1},
-      {'name': 'Salud', 'type': 'expense', 'color': '#E91E63', 'icon': 'local_hospital', 'is_default': 1},
-      {'name': 'Educación', 'type': 'expense', 'color': '#3F51B5', 'icon': 'school', 'is_default': 1},
-      {'name': 'Otro Gasto', 'type': 'expense', 'color': '#F44336', 'icon': 'remove_circle', 'is_default': 1},
-      
-      {'name': 'Deuda', 'type': 'debt', 'color': '#FF5722', 'icon': 'money_off', 'is_default': 1},
-      {'name': 'Préstamo', 'type': 'loan', 'color': '#607D8B', 'icon': 'account_balance', 'is_default': 1},
+      // Categorías base para quitar dinero (expense)  
+      {'name': 'Préstamo', 'type': 'expense', 'color': '#FF9800', 'icon': 'money', 'is_default': 1},
     ];
 
     for (var category in defaultCategories) {

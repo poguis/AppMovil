@@ -54,109 +54,87 @@ class _TransactionDialogState extends State<TransactionDialog> {
 
   Future<void> _loadCategories() async {
     try {
-      // Cargar todas las categorías existentes del tipo
-      final allCategories = await CategoryService.getCategoriesByType(widget.type);
+      // Cargar todas las categorías existentes del tipo (incluye las base y personalizadas)
+      final currentUser = AuthService.currentUser;
+      final allCategories = await CategoryService.getCategoriesByType(widget.type, userId: currentUser?.id);
       
-      // Crear o obtener las categorías especiales si no existen
-      List<Category> specialCategories = [];
+      // Filtrar para evitar duplicados y asegurar que solo tengamos las categorías correctas
+      List<Category> finalCategories = [];
       
       if (widget.type == 'income') {
-        // Para agregar dinero: solo "Me deben"
-        final categoriesToCreate = ['Me deben'];
+        // Para AGREGAR dinero: "Me deben" Y "Préstamos" + categorías personalizadas
+        final meDebenCategory = allCategories.firstWhere(
+          (cat) => cat.name == 'Me deben',
+          orElse: () => Category(
+            id: -1,
+            name: '',
+            type: '',
+            color: '',
+            icon: '',
+            isDefault: false,
+            userId: null,
+            createdAt: DateTime.now(),
+          ),
+        );
         
-        for (final categoryName in categoriesToCreate) {
-          final existingCategory = allCategories.firstWhere(
-            (cat) => cat.name == categoryName,
-            orElse: () => Category(
-              id: -1,
-              name: '',
-              type: '',
-              color: '',
-              icon: '',
-              isDefault: false,
-              userId: null,
-              createdAt: DateTime.now(),
-            ),
-          );
-          
-          if (existingCategory.id != -1) {
-            specialCategories.add(existingCategory);
-          } else {
-            final categoryId = await CategoryService.createCategory(Category(
-              name: categoryName,
-              type: widget.type,
-              color: '#4CAF50',
-              icon: 'account_balance_wallet',
-              isDefault: false,
-              userId: null,
-              createdAt: DateTime.now(),
-            ));
-            
-            specialCategories.add(Category(
-              id: categoryId,
-              name: categoryName,
-              type: widget.type,
-              color: '#4CAF50',
-              icon: 'account_balance_wallet',
-              isDefault: false,
-              userId: null,
-              createdAt: DateTime.now(),
-            ));
-          }
+        if (meDebenCategory.id != -1) {
+          finalCategories.add(meDebenCategory);
         }
+        
+        // También agregar "Préstamos" para el botón AGREGAR
+        final prestamoCategory = allCategories.firstWhere(
+          (cat) => cat.name == 'Préstamos',
+          orElse: () => Category(
+            id: -1,
+            name: '',
+            type: '',
+            color: '',
+            icon: '',
+            isDefault: false,
+            userId: null,
+            createdAt: DateTime.now(),
+          ),
+        );
+        
+        if (prestamoCategory.id != -1) {
+          finalCategories.add(prestamoCategory);
+        }
+        
+        // Agregar categorías personalizadas (excluyendo las base si ya existen)
+        final customCategories = allCategories.where((cat) => 
+          cat.name != 'Me deben' && cat.name != 'Préstamos' && !cat.isDefault
+        ).toList();
+        finalCategories.addAll(customCategories);
+        
       } else {
-        // Para quitar dinero: "Debo" y "Préstamos"
-        final categoriesToCreate = ['Debo', 'Préstamos'];
+        // Para quitar dinero: solo "Préstamo" + categorías personalizadas
+        final prestamoCategory = allCategories.firstWhere(
+          (cat) => cat.name == 'Préstamo',
+          orElse: () => Category(
+            id: -1,
+            name: '',
+            type: '',
+            color: '',
+            icon: '',
+            isDefault: false,
+            userId: null,
+            createdAt: DateTime.now(),
+          ),
+        );
         
-        for (final categoryName in categoriesToCreate) {
-          final existingCategory = allCategories.firstWhere(
-            (cat) => cat.name == categoryName,
-            orElse: () => Category(
-              id: -1,
-              name: '',
-              type: '',
-              color: '',
-              icon: '',
-              isDefault: false,
-              userId: null,
-              createdAt: DateTime.now(),
-            ),
-          );
-          
-          if (existingCategory.id != -1) {
-            specialCategories.add(existingCategory);
-          } else {
-            final categoryId = await CategoryService.createCategory(Category(
-              name: categoryName,
-              type: widget.type,
-              color: categoryName == 'Debo' ? '#F44336' : '#FF9800',
-              icon: categoryName == 'Debo' ? 'money_off' : 'money',
-              isDefault: false,
-              userId: null,
-              createdAt: DateTime.now(),
-            ));
-            
-            specialCategories.add(Category(
-              id: categoryId,
-              name: categoryName,
-              type: widget.type,
-              color: categoryName == 'Debo' ? '#F44336' : '#FF9800',
-              icon: categoryName == 'Debo' ? 'money_off' : 'money',
-              isDefault: false,
-              userId: null,
-              createdAt: DateTime.now(),
-            ));
-          }
+        if (prestamoCategory.id != -1) {
+          finalCategories.add(prestamoCategory);
         }
+        
+        // Agregar categorías personalizadas (excluyendo "Préstamo" si ya existe)
+        final customCategories = allCategories.where((cat) => 
+          cat.name != 'Préstamo' && !cat.isDefault
+        ).toList();
+        finalCategories.addAll(customCategories);
       }
       
-      // Combinar categorías especiales con categorías personalizadas existentes
-      final customCategories = allCategories.where((cat) => 
-        !specialCategories.any((special) => special.name == cat.name)
-      ).toList();
-      
       setState(() {
-        _categories = [...specialCategories, ...customCategories];
+        _categories = finalCategories;
         _isLoading = false;
       });
     } catch (e) {
@@ -170,13 +148,16 @@ class _TransactionDialogState extends State<TransactionDialog> {
     if (_newCategoryController.text.trim().isEmpty) return;
 
     try {
+      final currentUser = AuthService.currentUser;
+      if (currentUser == null) return;
+
       final categoryId = await CategoryService.createCategory(Category(
         name: _newCategoryController.text.trim(),
         type: widget.type,
         color: widget.type == 'income' ? '#4CAF50' : '#F44336',
         icon: 'category',
         isDefault: false,
-        userId: null,
+        userId: currentUser.id,
         createdAt: DateTime.now(),
       ));
       
@@ -187,7 +168,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
         color: widget.type == 'income' ? '#4CAF50' : '#F44336',
         icon: 'category',
         isDefault: false,
-        userId: null,
+        userId: currentUser.id,
         createdAt: DateTime.now(),
       );
       
@@ -217,14 +198,15 @@ class _TransactionDialogState extends State<TransactionDialog> {
       if (widget.type == 'income') {
         if (category.name == 'Me deben') {
           // "Me deben" - cargar solo personas que realmente me deben dinero
+          // NO se permite agregar nuevas personas aquí
           persons = await PersonService.getPersonsWithPendingAmount(currentUser.id!, 'loan');
+        } else if (category.name == 'Préstamos') {
+          // "Préstamos" - cargar personas a las que debo (para pedirles préstamo) Y permitir agregar nuevas
+          persons = await PersonService.getPersonsByType(currentUser.id!, 'debt');
         }
       } else {
-        if (category.name == 'Debo') {
-          // "Debo" - cargar personas de deudas
-          persons = await PersonService.getPersonsByType(currentUser.id!, 'debt');
-        } else if (category.name == 'Préstamos') {
-          // "Préstamos" - cargar personas a las que debo (para pedir préstamo)
+        if (category.name == 'Préstamo') {
+          // "Préstamo" - cargar personas a las que debo (para pedir préstamo) Y permitir agregar nuevas
           persons = await PersonService.getPersonsByType(currentUser.id!, 'debt');
         }
       }
@@ -247,11 +229,13 @@ class _TransactionDialogState extends State<TransactionDialog> {
 
     try {
       String type = 'loan'; // Por defecto
-      if (widget.type == 'expense') {
-        type = 'debt';
-      } else if (widget.type == 'income' && _selectedCategory?.name == 'Me deben') {
+      if (widget.type == 'income' && _selectedCategory?.name == 'Me deben') {
         // Para "Me deben", mostrar cuánto me deben
         type = 'loan';
+      } else if ((widget.type == 'income' && _selectedCategory?.name == 'Préstamos') ||
+                 (widget.type == 'expense' && _selectedCategory?.name == 'Préstamo')) {
+        // Para "Préstamos" (income) o "Préstamo" (expense), mostrar cuánto le debo
+        type = 'debt';
       }
 
       final amount = await PersonService.getTotalPendingByPerson(currentUser.id!, personName, type);
@@ -315,10 +299,18 @@ class _TransactionDialogState extends State<TransactionDialog> {
   bool _shouldShowPersonSelector() {
     if (_selectedCategory == null) return false;
     
-    // Mostrar selector para categorías especiales que requieren persona
+    // Mostrar selector para categorías base que requieren persona
     return _selectedCategory!.name == 'Me deben' || 
-           _selectedCategory!.name == 'Préstamos' || 
-           _selectedCategory!.name == 'Debo';
+           _selectedCategory!.name == 'Préstamos' ||
+           _selectedCategory!.name == 'Préstamo';
+  }
+
+  bool _canAddNewPerson() {
+    if (_selectedCategory == null) return false;
+    
+    // Solo permitir agregar nuevas personas en "Préstamos" (income)
+    // Para "Préstamo" (expense/quitar) NO se puede agregar nuevas personas
+    return _selectedCategory!.name == 'Préstamos';
   }
 
   @override
@@ -353,10 +345,17 @@ class _TransactionDialogState extends State<TransactionDialog> {
                     return 'La cantidad debe ser mayor a 0';
                   }
                   
-                  // Validación especial para "Me deben"
+                  // Validación especial para "Me deben" - no puede agregar más de lo que le deben
                   if (_selectedCategory?.name == 'Me deben' && _selectedPerson != null) {
                     if (amount > _pendingAmount) {
                       return 'No puedes agregar más de \$${_pendingAmount.toStringAsFixed(2)} que te debe $_selectedPerson';
+                    }
+                  }
+                  
+                  // Validación especial para "Préstamo" en QUITAR - no puede pagar más de lo que debe
+                  if (_selectedCategory?.name == 'Préstamo' && widget.type == 'expense' && _selectedPerson != null) {
+                    if (amount > _pendingAmount) {
+                      return 'No puedes pagar más de \$${_pendingAmount.toStringAsFixed(2)} que le debes a $_selectedPerson';
                     }
                   }
                   
@@ -477,11 +476,12 @@ class _TransactionDialogState extends State<TransactionDialog> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: _showAddPersonDialog,
-                        icon: const Icon(Icons.person_add, size: 16),
-                        label: const Text('Nueva'),
-                      ),
+                      if (_canAddNewPerson())
+                        TextButton.icon(
+                          onPressed: _showAddPersonDialog,
+                          icon: const Icon(Icons.person_add, size: 16),
+                          label: const Text('Nueva'),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -496,9 +496,13 @@ class _TransactionDialogState extends State<TransactionDialog> {
                         border: Border.all(color: Colors.orange),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Text(
-                        'No hay personas registradas para esta categoría. Ve a "Deudas y Préstamos" para agregar personas.',
-                        style: TextStyle(color: Colors.orange),
+                      child: Text(
+                        _selectedCategory?.name == 'Me deben'
+                            ? 'No hay personas que te deban dinero. Ve a "Deudas y Préstamos" para registrar préstamos.'
+                            : _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
+                                ? 'No tienes deudas pendientes para pagar.'
+                                : 'No hay personas registradas para esta categoría. Ve a "Deudas y Préstamos" para agregar personas.',
+                        style: const TextStyle(color: Colors.orange),
                       ),
                     )
                   else
@@ -551,8 +555,10 @@ class _TransactionDialogState extends State<TransactionDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _selectedCategory?.name == 'Préstamos' 
-                              ? 'Deuda actual con $_selectedPerson:'
+                          (_selectedCategory?.name == 'Préstamo' || _selectedCategory?.name == 'Préstamos')
+                              ? _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
+                                  ? 'Deuda a pagar con $_selectedPerson:'
+                                  : 'Deuda actual con $_selectedPerson:'
                               : 'Información de $_selectedPerson:',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
@@ -561,7 +567,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _selectedCategory?.name == 'Préstamos'
+                          (_selectedCategory?.name == 'Préstamo' || _selectedCategory?.name == 'Préstamos')
                               ? 'Le debes: \$${_pendingAmount.toStringAsFixed(2)}'
                               : widget.type == 'income' 
                                   ? 'Te debe: \$${_pendingAmount.toStringAsFixed(2)}'
@@ -569,15 +575,17 @@ class _TransactionDialogState extends State<TransactionDialog> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: _selectedCategory?.name == 'Préstamos' 
+                            color: (_selectedCategory?.name == 'Préstamo' || _selectedCategory?.name == 'Préstamos')
                                 ? Colors.red 
                                 : widget.type == 'income' ? Colors.green : Colors.red,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _selectedCategory?.name == 'Préstamos'
-                              ? 'Se sumará a tu deuda actual'
+                          (_selectedCategory?.name == 'Préstamo' || _selectedCategory?.name == 'Préstamos')
+                              ? _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
+                                  ? 'Se reducirá tu deuda actual'
+                                  : 'Se sumará a tu deuda actual'
                               : 'Cantidad sugerida: \$${_pendingAmount.toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontSize: 14,

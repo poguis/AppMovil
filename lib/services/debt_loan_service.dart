@@ -114,4 +114,14 @@ class DebtLoanService {
 
     return result.first['total'] as double? ?? 0.0;
   }
+
+  // Limpiar registros pagados (método de utilidad)
+  static Future<void> cleanPaidRecords(int userId) async {
+    final db = await DatabaseService.database;
+    await db.delete(
+      'debts_loans',
+      where: 'user_id = ? AND is_paid = 1',
+      whereArgs: [userId],
+    );
+  }
 }

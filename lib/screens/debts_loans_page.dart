@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:sqflite/sqflite.dart';
 import '../services/auth_service.dart';
 import '../services/debt_loan_service.dart';
+import '../services/database_service.dart';
 import '../models/debt_loan.dart';
 import '../widgets/debt_loan_dialog.dart';
 
@@ -19,6 +21,13 @@ class _DebtsLoansPageState extends State<DebtsLoansPage> {
   @override
   void initState() {
     super.initState();
+    _loadData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Recargar datos cuando se regrese de otra pantalla
     _loadData();
   }
 
@@ -69,17 +78,34 @@ class _DebtsLoansPageState extends State<DebtsLoansPage> {
       final currentUser = AuthService.currentUser;
       if (currentUser != null) {
         try {
-          final debtLoan = DebtLoan(
-            userId: currentUser.id!,
-            personName: result['personName'] as String,
-            amount: result['amount'] as double,
-            type: type,
-            description: result['description'] as String?,
-            dateCreated: DateTime.now(),
-            isPaid: false,
-          );
+          final isExistingPerson = result['isExistingPerson'] as bool? ?? false;
+          final existingAmount = result['existingAmount'] as double? ?? 0.0;
+          
+          if (isExistingPerson && existingAmount > 0) {
+            // Consolidar con la deuda existente
+            await _consolidateDebtLoan(
+              currentUser.id!,
+              result['personName'] as String,
+              type,
+              result['amount'] as double,
+              existingAmount,
+              result['description'] as String?,
+            );
+          } else {
+            // Crear nueva deuda/préstamo
+            final debtLoan = DebtLoan(
+              userId: currentUser.id!,
+              personName: result['personName'] as String,
+              amount: result['amount'] as double,
+              type: type,
+              description: result['description'] as String?,
+              dateCreated: DateTime.now(),
+              isPaid: false,
+            );
 
-          await DebtLoanService.createDebtLoan(debtLoan);
+            await DebtLoanService.createDebtLoan(debtLoan);
+          }
+          
           await _loadData(); // Recargar los datos
 
           if (mounted) {
@@ -206,6 +232,32 @@ class _DebtsLoansPageState extends State<DebtsLoansPage> {
         }
       }
     }
+  }
+
+  // Consolidar deudas/préstamos existentes
+  Future<void> _consolidateDebtLoan(int userId, String personName, String type, double newAmount, double existingAmount, String? description) async {
+    final db = await DatabaseService.database;
+    
+    // Eliminar todos los registros existentes de esta persona
+    await db.delete(
+      'debts_loans',
+      where: 'user_id = ? AND person_name = ? AND type = ? AND is_paid = 0',
+      whereArgs: [userId, personName, type],
+    );
+    
+    // Crear un nuevo registro con el monto total
+    final totalAmount = existingAmount + newAmount;
+    final consolidatedDebtLoan = DebtLoan(
+      userId: userId,
+      personName: personName,
+      amount: totalAmount,
+      type: type,
+      description: description ?? 'Deuda consolidada',
+      dateCreated: DateTime.now(),
+      isPaid: false,
+    );
+    
+    await DebtLoanService.createDebtLoan(consolidatedDebtLoan);
   }
 
   @override

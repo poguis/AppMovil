@@ -37,9 +37,11 @@ class TransactionService {
     // Determinar el tipo de deuda/préstamo
     String debtLoanType;
     if (transaction.type == 'income' && category.name == 'Me deben') {
-      debtLoanType = 'loan'; // Me prestaron dinero
-    } else if (transaction.type == 'expense' && (category.name == 'Debo' || category.name == 'Préstamos')) {
-      debtLoanType = 'debt'; // Debo dinero
+      debtLoanType = 'loan'; // Me pagaron dinero que me debían (reducir lo que me deben)
+    } else if (transaction.type == 'income' && category.name == 'Préstamos') {
+      debtLoanType = 'debt'; // Pedí préstamo (aumentar lo que debo)
+    } else if (transaction.type == 'expense' && category.name == 'Préstamo') {
+      debtLoanType = 'debt'; // Debo dinero (aumentar lo que debo)
     } else {
       return; // No es una categoría especial
     }
@@ -51,29 +53,42 @@ class TransactionService {
     ).toList();
 
     if (personRecords.isNotEmpty) {
-      // Hay registros existentes, actualizar el monto
+      // Hay registros existentes, consolidar en un solo registro
       final totalExisting = personRecords.fold(0.0, (sum, record) => sum + record.amount);
       
       if (transaction.type == 'income') {
-        // Me dieron dinero, reducir la deuda
-        await _reduceDebtLoanAmount(transaction.userId, personName, debtLoanType, transaction.amount);
+        if (category.name == 'Me deben') {
+          // Para "Me deben": me pagaron dinero que me debían, reducir la deuda
+          await _reduceDebtLoanAmount(transaction.userId, personName, debtLoanType, transaction.amount);
+        } else if (category.name == 'Préstamos') {
+          // Para "Préstamos": pedí préstamo, consolidar en un solo registro
+          await _consolidateDebtLoan(transaction.userId, personName, debtLoanType, transaction.amount, totalExisting, transaction.description);
+        }
       } else {
-        // Gasté dinero, aumentar la deuda
-        await _increaseDebtLoanAmount(transaction.userId, personName, debtLoanType, transaction.amount);
+        // Para expense (QUITAR): pagar deuda, reducir el monto
+        await _reduceDebtLoanAmount(transaction.userId, personName, debtLoanType, transaction.amount);
       }
     } else {
-      // No hay registros existentes, crear uno nuevo
-      final newDebtLoan = DebtLoan(
-        userId: transaction.userId,
-        personName: personName,
-        amount: transaction.amount,
-        type: debtLoanType,
-        description: transaction.description ?? 'Transacción automática',
-        dateCreated: DateTime.now(),
-        isPaid: false,
-      );
-      
-      await DebtLoanService.createDebtLoan(newDebtLoan);
+      // No hay registros existentes
+      if ((transaction.type == 'income' && category.name == 'Me deben') ||
+          (transaction.type == 'expense' && category.name == 'Préstamo')) {
+        // Para "Me deben" (income) o "Préstamo" (expense), si no hay registros existentes, no hacer nada
+        // (no se puede recibir pago de alguien que no te debe nada, ni pagar a alguien que no le debes nada)
+        return;
+      } else {
+        // Para "Préstamos" (income) y otros casos, crear uno nuevo
+        final newDebtLoan = DebtLoan(
+          userId: transaction.userId,
+          personName: personName,
+          amount: transaction.amount,
+          type: debtLoanType,
+          description: transaction.description ?? 'Transacción automática',
+          dateCreated: DateTime.now(),
+          isPaid: false,
+        );
+        
+        await DebtLoanService.createDebtLoan(newDebtLoan);
+      }
     }
   }
 
@@ -95,10 +110,9 @@ class TransactionService {
       final currentAmount = record['amount'] as double;
       
       if (remainingAmount >= currentAmount) {
-        // Marcar este registro como pagado
-        await db.update(
+        // Eliminar este registro completamente ya que está pagado
+        await db.delete(
           'debts_loans',
-          {'is_paid': 1},
           where: 'id = ?',
           whereArgs: [record['id']],
         );
@@ -129,6 +143,32 @@ class TransactionService {
     );
     
     await DebtLoanService.createDebtLoan(newDebtLoan);
+  }
+
+  // Consolidar deudas/préstamos en un solo registro
+  static Future<void> _consolidateDebtLoan(int userId, String personName, String type, double newAmount, double existingAmount, String? description) async {
+    final db = await DatabaseService.database;
+    
+    // Eliminar todos los registros existentes de esta persona
+    await db.delete(
+      'debts_loans',
+      where: 'user_id = ? AND person_name = ? AND type = ? AND is_paid = 0',
+      whereArgs: [userId, personName, type],
+    );
+    
+    // Crear un nuevo registro con el monto total
+    final totalAmount = existingAmount + newAmount;
+    final consolidatedDebtLoan = DebtLoan(
+      userId: userId,
+      personName: personName,
+      amount: totalAmount,
+      type: type,
+      description: description ?? 'Transacción consolidada',
+      dateCreated: DateTime.now(),
+      isPaid: false,
+    );
+    
+    await DebtLoanService.createDebtLoan(consolidatedDebtLoan);
   }
 
   // Obtener transacciones del usuario

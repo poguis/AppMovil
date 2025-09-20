@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
+import '../services/person_service.dart';
 
 class DebtLoanDialog extends StatefulWidget {
   final String type; // 'debt' o 'loan'
@@ -19,6 +21,13 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
   final _personNameController = TextEditingController();
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
+  
+  // Para selector de personas existentes
+  List<String> _existingPersons = [];
+  String? _selectedExistingPerson;
+  bool _isLoadingPersons = false;
+  bool _showPersonSelector = false;
+  double _existingAmount = 0.0;
 
   @override
   void initState() {
@@ -28,6 +37,52 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
       _personNameController.text = widget.initialData!['personName'] ?? '';
       _amountController.text = widget.initialData!['amount']?.toString() ?? '';
       _descriptionController.text = widget.initialData!['description'] ?? '';
+    }
+    
+    // Cargar personas existentes si no estamos editando
+    if (widget.initialData == null) {
+      _loadExistingPersons();
+    }
+  }
+
+  Future<void> _loadExistingPersons() async {
+    final currentUser = AuthService.currentUser;
+    if (currentUser == null) return;
+
+    setState(() {
+      _isLoadingPersons = true;
+    });
+
+    try {
+      // Cargar personas que ya tienen deudas/préstamos del mismo tipo
+      final persons = await PersonService.getPersonsByType(currentUser.id!, widget.type);
+      
+      setState(() {
+        _existingPersons = persons;
+        _isLoadingPersons = false;
+        _showPersonSelector = persons.isNotEmpty;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingPersons = false;
+        _showPersonSelector = false;
+      });
+    }
+  }
+
+  Future<void> _loadExistingAmount(String personName) async {
+    final currentUser = AuthService.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      final amount = await PersonService.getTotalPendingByPerson(currentUser.id!, personName, widget.type);
+      setState(() {
+        _existingAmount = amount;
+      });
+    } catch (e) {
+      setState(() {
+        _existingAmount = 0.0;
+      });
     }
   }
 
@@ -56,6 +111,60 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Selector de personas existentes (solo si no estamos editando y hay personas existentes)
+              if (_showPersonSelector && !isEditing) ...[
+                const Text(
+                  'Personas existentes:',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (_isLoadingPersons)
+                  const CircularProgressIndicator()
+                else
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedExistingPerson,
+                        hint: const Text('Selecciona una persona existente'),
+                        isExpanded: true,
+                        items: _existingPersons.map((person) {
+                          return DropdownMenuItem<String>(
+                            value: person,
+                            child: Text(person),
+                          );
+                        }).toList(),
+                        onChanged: (String? newValue) {
+                          setState(() {
+                            _selectedExistingPerson = newValue;
+                            if (newValue != null) {
+                              _personNameController.text = newValue;
+                              _loadExistingAmount(newValue);
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                const Text(
+                  'O agregar nueva persona:',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              
               // Campo de nombre de persona
               TextFormField(
                 controller: _personNameController,
@@ -99,7 +208,55 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
               ),
               const SizedBox(height: 16),
 
+              // Información de la persona seleccionada
+              if (_selectedExistingPerson != null && _existingAmount > 0) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: widget.type == 'debt' 
+                        ? Colors.red.withValues(alpha: 0.1)
+                        : Colors.green.withValues(alpha: 0.1),
+                    border: Border.all(
+                      color: widget.type == 'debt' ? Colors.red : Colors.green,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Deuda actual con $_selectedExistingPerson:',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${widget.type == 'debt' ? 'Le debes' : 'Te debe'}: \$${_existingAmount.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: widget.type == 'debt' ? Colors.red : Colors.green,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Se sumará al monto existente',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               // Campo de descripción
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _descriptionController,
                 decoration: const InputDecoration(
@@ -140,6 +297,8 @@ class _DebtLoanDialogState extends State<DebtLoanDialog> {
         'personName': personName,
         'amount': amount,
         'description': description,
+        'isExistingPerson': _selectedExistingPerson != null,
+        'existingAmount': _existingAmount,
       });
     }
   }
