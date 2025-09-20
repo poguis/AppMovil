@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'login_page.dart';
 import 'dinero_page.dart';
+import 'series_anime_page.dart';
+import 'peliculas_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -81,6 +83,40 @@ class HomePage extends StatelessWidget {
                 textStyle: const TextStyle(fontSize: 18),
               ),
               child: const Text('Dinero'),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Botón de Serie/Anime
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SeriesAnimePage()),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
+                textStyle: const TextStyle(fontSize: 18),
+              ),
+              child: const Text('Serie/Anime'),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Botón de Películas
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const PeliculasPage()),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
+                textStyle: const TextStyle(fontSize: 18),
+              ),
+              child: const Text('Películas'),
             ),
           ],
         ),
