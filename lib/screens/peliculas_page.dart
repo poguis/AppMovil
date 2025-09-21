@@ -52,3 +52,5 @@ class PeliculasPage extends StatelessWidget {
     );
   }
 }
+
+

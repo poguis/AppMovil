@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 3;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -110,6 +110,33 @@ class DatabaseService {
       )
     ''');
 
+    // Tabla de categorías de Series/Anime
+    await db.execute('''
+      CREATE TABLE series_anime_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('video', 'lectura')),
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    ''');
+
+    // Tabla de registros de video
+    await db.execute('''
+      CREATE TABLE video_tracking (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        start_date DATETIME NOT NULL,
+        selected_days TEXT NOT NULL,
+        frequency TEXT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (category_id) REFERENCES series_anime_categories (id)
+      )
+    ''');
+
     // Insertar categorías por defecto
     await _insertDefaultCategories(db);
   }
@@ -132,7 +159,36 @@ class DatabaseService {
 
   // Actualizar base de datos
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Aquí se pueden agregar migraciones futuras
+    if (oldVersion < 2) {
+      // Agregar tabla de categorías de Series/Anime
+      await db.execute('''
+        CREATE TABLE series_anime_categories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('video', 'lectura')),
+          description TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+    }
+    
+    if (oldVersion < 3) {
+      // Agregar tabla de registros de video
+      await db.execute('''
+        CREATE TABLE video_tracking (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          start_date DATETIME NOT NULL,
+          selected_days TEXT NOT NULL,
+          frequency TEXT NOT NULL,
+          description TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (category_id) REFERENCES series_anime_categories (id)
+        )
+      ''');
+    }
   }
 
   // Crear backup de la base de datos
