@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'screens/login_page.dart';
 import 'screens/home_page.dart';
 import 'services/auth_service.dart';
@@ -31,6 +32,18 @@ class MyApp extends StatelessWidget {
       ),
       home: const AuthWrapper(),
       debugShowCheckedModeBanner: false, // Quita el banner DEBUG
+      // Configuración de localización
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('es', 'EC'), // Español de Ecuador
+        Locale('es', ''),   // Español general
+        Locale('en', ''),   // Inglés como fallback
+      ],
+      locale: const Locale('es', 'EC'), // Forzar español de Ecuador
     );
   }
 }

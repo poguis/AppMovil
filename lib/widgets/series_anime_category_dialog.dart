@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../models/series_anime_category.dart';
 
 class SeriesAnimeCategoryDialog extends StatefulWidget {
@@ -19,8 +20,24 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _frequencyController = TextEditingController();
+  final _numberOfSeriesController = TextEditingController();
+  
   String _selectedType = 'video';
+  DateTime _startDate = DateTime.now();
+  List<int> _selectedDays = [];
   bool _isLoading = false;
+
+  // Días de la semana
+  final List<Map<String, dynamic>> _weekDays = [
+    {'number': 1, 'name': 'Lunes', 'short': 'L'},
+    {'number': 2, 'name': 'Martes', 'short': 'M'},
+    {'number': 3, 'name': 'Miércoles', 'short': 'X'},
+    {'number': 4, 'name': 'Jueves', 'short': 'J'},
+    {'number': 5, 'name': 'Viernes', 'short': 'V'},
+    {'number': 6, 'name': 'Sábado', 'short': 'S'},
+    {'number': 7, 'name': 'Domingo', 'short': 'D'},
+  ];
 
   @override
   void initState() {
@@ -29,8 +46,14 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
       _nameController.text = widget.category!.name;
       _descriptionController.text = widget.category!.description ?? '';
       _selectedType = widget.category!.type;
+      _startDate = widget.category!.startDate;
+      _selectedDays = List.from(widget.category!.selectedDays);
+      _frequencyController.text = widget.category!.frequency.toString();
+      _numberOfSeriesController.text = widget.category!.numberOfSeries.toString();
     } else if (widget.initialType != null) {
       _selectedType = widget.initialType!;
+      _frequencyController.text = '1';
+      _numberOfSeriesController.text = '1';
     }
   }
 
@@ -38,6 +61,8 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _frequencyController.dispose();
+    _numberOfSeriesController.dispose();
     super.dispose();
   }
 
@@ -117,6 +142,101 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
               ),
               const SizedBox(height: 16),
 
+              // Selector de fecha de inicio
+              InkWell(
+                onTap: _selectStartDate,
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Fecha de inicio',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today),
+                      const SizedBox(width: 8),
+                      Text(
+                        DateFormat('dd/MM/yyyy').format(_startDate),
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Selector de días de la semana
+              const Text(
+                'Días de la semana:',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: _weekDays.map((day) {
+                  final isSelected = _selectedDays.contains(day['number']);
+                  return FilterChip(
+                    label: Text(day['short']),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedDays.add(day['number']);
+                        } else {
+                          _selectedDays.remove(day['number']);
+                        }
+                      });
+                    },
+                    tooltip: day['name'],
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+
+              // Campo de frecuencia
+              TextFormField(
+                controller: _frequencyController,
+                decoration: const InputDecoration(
+                  labelText: 'Frecuencia (capítulos por día)',
+                  hintText: 'Ej: 2',
+                  border: OutlineInputBorder(),
+                  helperText: 'Número de capítulos que verás por día',
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'La frecuencia es requerida';
+                  }
+                  final intValue = int.tryParse(value);
+                  if (intValue == null || intValue < 1) {
+                    return 'La frecuencia debe ser un número mayor a 0';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Campo de número de series
+              TextFormField(
+                controller: _numberOfSeriesController,
+                decoration: const InputDecoration(
+                  labelText: 'Número de series',
+                  hintText: 'Ej: 2',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'El número de series es requerido';
+                  }
+                  final intValue = int.tryParse(value);
+                  if (intValue == null || intValue < 1) {
+                    return 'El número de series debe ser mayor a 0';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
               // Campo de descripción (opcional)
               TextFormField(
                 controller: _descriptionController,
@@ -151,8 +271,34 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
     );
   }
 
+  Future<void> _selectStartDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _startDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked;
+      });
+    }
+  }
+
   Future<void> _saveCategory() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Validar que se hayan seleccionado días
+    if (_selectedDays.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona al menos un día de la semana'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -166,6 +312,10 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
         description: _descriptionController.text.trim().isEmpty 
             ? null 
             : _descriptionController.text.trim(),
+        startDate: _startDate,
+        selectedDays: _selectedDays,
+        frequency: int.parse(_frequencyController.text),
+        numberOfSeries: int.parse(_numberOfSeriesController.text),
         createdAt: widget.category?.createdAt ?? DateTime.now(),
       );
 

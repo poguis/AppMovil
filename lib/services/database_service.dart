@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 3;
+  static const int _databaseVersion = 4;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -117,6 +117,10 @@ class DatabaseService {
         name TEXT NOT NULL,
         type TEXT NOT NULL CHECK (type IN ('video', 'lectura')),
         description TEXT,
+        start_date DATETIME NOT NULL,
+        selected_days TEXT NOT NULL,
+        frequency INTEGER NOT NULL DEFAULT 1,
+        number_of_series INTEGER NOT NULL DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     ''');
@@ -157,37 +161,75 @@ class DatabaseService {
     }
   }
 
+  // Verificar si una tabla existe
+  static Future<bool> _tableExists(Database db, String tableName) async {
+    final result = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+      [tableName]
+    );
+    return result.isNotEmpty;
+  }
+
   // Actualizar base de datos
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // Agregar tabla de categorías de Series/Anime
-      await db.execute('''
-        CREATE TABLE series_anime_categories (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          type TEXT NOT NULL CHECK (type IN ('video', 'lectura')),
-          description TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      ''');
+      final tableExists = await _tableExists(db, 'series_anime_categories');
+      if (!tableExists) {
+        await db.execute('''
+          CREATE TABLE series_anime_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL CHECK (type IN ('video', 'lectura')),
+            description TEXT,
+            start_date DATETIME NOT NULL,
+            selected_days TEXT NOT NULL,
+            frequency INTEGER NOT NULL DEFAULT 1,
+            number_of_series INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        ''');
+        print('Tabla series_anime_categories creada exitosamente');
+      } else {
+        print('Tabla series_anime_categories ya existe, saltando creación');
+      }
     }
     
     if (oldVersion < 3) {
       // Agregar tabla de registros de video
-      await db.execute('''
-        CREATE TABLE video_tracking (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          category_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          start_date DATETIME NOT NULL,
-          selected_days TEXT NOT NULL,
-          frequency TEXT NOT NULL,
-          description TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (category_id) REFERENCES series_anime_categories (id)
-        )
-      ''');
+      final tableExists = await _tableExists(db, 'video_tracking');
+      if (!tableExists) {
+        await db.execute('''
+          CREATE TABLE video_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            start_date DATETIME NOT NULL,
+            selected_days TEXT NOT NULL,
+            frequency TEXT NOT NULL,
+            description TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (category_id) REFERENCES series_anime_categories (id)
+          )
+        ''');
+        print('Tabla video_tracking creada exitosamente');
+      } else {
+        print('Tabla video_tracking ya existe, saltando creación');
+      }
+    }
+    
+    if (oldVersion < 4) {
+      // Actualizar tabla de categorías de Series/Anime con nuevos campos
+      try {
+        await db.execute('ALTER TABLE series_anime_categories ADD COLUMN start_date DATETIME');
+        await db.execute('ALTER TABLE series_anime_categories ADD COLUMN selected_days TEXT');
+        await db.execute('ALTER TABLE series_anime_categories ADD COLUMN frequency INTEGER DEFAULT 1');
+        await db.execute('ALTER TABLE series_anime_categories ADD COLUMN number_of_series INTEGER DEFAULT 1');
+        print('Tabla series_anime_categories actualizada con nuevos campos');
+      } catch (e) {
+        print('Error actualizando tabla series_anime_categories: $e');
+      }
     }
   }
 
