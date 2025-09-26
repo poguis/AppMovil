@@ -6,6 +6,7 @@ import '../services/series_anime_category_service.dart';
 import '../services/video_tracking_service.dart';
 import '../widgets/series_anime_category_dialog.dart';
 import '../widgets/video_tracking_dialog.dart';
+import 'category_detail_page.dart';
 
 class SeriesAnimePage extends StatefulWidget {
   const SeriesAnimePage({super.key});
@@ -289,6 +290,14 @@ class _SeriesAnimePageState extends State<SeriesAnimePage> {
                 ),
               ],
             ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => CategoryDetailPage(category: category),
+                ),
+              );
+            },
             trailing: PopupMenuButton<String>(
               onSelected: (value) {
                 if (value == 'edit') {

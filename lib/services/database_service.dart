@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 4;
+  static const int _databaseVersion = 5;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -141,6 +141,63 @@ class DatabaseService {
       )
     ''');
 
+    // Tabla de series
+    await db.execute('''
+      CREATE TABLE series (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'nueva',
+        current_season INTEGER NOT NULL DEFAULT 1,
+        current_episode INTEGER NOT NULL DEFAULT 1,
+        start_watching_date TEXT,
+        finish_watching_date TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (category_id) REFERENCES series_anime_categories (id) ON DELETE CASCADE
+      )
+    ''');
+
+    // Tabla de temporadas
+    await db.execute('''
+      CREATE TABLE seasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        series_id INTEGER NOT NULL,
+        season_number INTEGER NOT NULL,
+        title TEXT,
+        total_episodes INTEGER NOT NULL DEFAULT 0,
+        watched_episodes INTEGER NOT NULL DEFAULT 0,
+        release_date TEXT,
+        finish_date TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE,
+        UNIQUE(series_id, season_number)
+      )
+    ''');
+
+    // Tabla de capítulos
+    await db.execute('''
+      CREATE TABLE episodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        season_id INTEGER NOT NULL,
+        episode_number INTEGER NOT NULL,
+        title TEXT,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'noVisto',
+        duration INTEGER,
+        watch_progress REAL,
+        watch_date TEXT,
+        rating INTEGER,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (season_id) REFERENCES seasons (id) ON DELETE CASCADE,
+        UNIQUE(season_id, episode_number)
+      )
+    ''');
+
     // Insertar categorías por defecto
     await _insertDefaultCategories(db);
   }
@@ -229,6 +286,75 @@ class DatabaseService {
         print('Tabla series_anime_categories actualizada con nuevos campos');
       } catch (e) {
         print('Error actualizando tabla series_anime_categories: $e');
+      }
+    }
+    
+    if (oldVersion < 5) {
+      // Agregar tablas de series, temporadas y capítulos
+      final seriesExists = await _tableExists(db, 'series');
+      if (!seriesExists) {
+        await db.execute('''
+          CREATE TABLE series (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'nueva',
+            current_season INTEGER NOT NULL DEFAULT 1,
+            current_episode INTEGER NOT NULL DEFAULT 1,
+            start_watching_date TEXT,
+            finish_watching_date TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (category_id) REFERENCES series_anime_categories (id) ON DELETE CASCADE
+          )
+        ''');
+        print('Tabla series creada exitosamente');
+      }
+
+      final seasonsExists = await _tableExists(db, 'seasons');
+      if (!seasonsExists) {
+        await db.execute('''
+          CREATE TABLE seasons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            season_number INTEGER NOT NULL,
+            title TEXT,
+            total_episodes INTEGER NOT NULL DEFAULT 0,
+            watched_episodes INTEGER NOT NULL DEFAULT 0,
+            release_date TEXT,
+            finish_date TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE,
+            UNIQUE(series_id, season_number)
+          )
+        ''');
+        print('Tabla seasons creada exitosamente');
+      }
+
+      final episodesExists = await _tableExists(db, 'episodes');
+      if (!episodesExists) {
+        await db.execute('''
+          CREATE TABLE episodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id INTEGER NOT NULL,
+            episode_number INTEGER NOT NULL,
+            title TEXT,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'noVisto',
+            duration INTEGER,
+            watch_progress REAL,
+            watch_date TEXT,
+            rating INTEGER,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (season_id) REFERENCES seasons (id) ON DELETE CASCADE,
+            UNIQUE(season_id, episode_number)
+          )
+        ''');
+        print('Tabla episodes creada exitosamente');
       }
     }
   }
