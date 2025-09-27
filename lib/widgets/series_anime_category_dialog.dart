@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/series_anime_category.dart';
+import '../models/series.dart';
+import '../services/series_service.dart';
 
 class SeriesAnimeCategoryDialog extends StatefulWidget {
   final SeriesAnimeCategory? category;
@@ -298,6 +300,42 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
         ),
       );
       return;
+    }
+
+    // Validación del número de series
+    if (widget.category != null) {
+      final newNumberOfSeries = int.parse(_numberOfSeriesController.text);
+      final currentNumberOfSeries = widget.category!.numberOfSeries;
+      
+      if (newNumberOfSeries < currentNumberOfSeries) {
+        // Solo se puede reducir si el número de series en estado "Mirando" es menor al nuevo límite
+        
+        try {
+          final allSeries = await SeriesService.getSeriesByCategory(widget.category!.id!);
+          final mirandoCount = allSeries.where((s) => s.status == SeriesStatus.mirando).length;
+          
+          if (mirandoCount > newNumberOfSeries) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No puedes reducir el número de series a $newNumberOfSeries porque ya tienes $mirandoCount series en estado "Mirando".\nSolo puedes agregar más series.'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
+              ),
+            );
+            return;
+          }
+        } catch (e) {
+          // En caso de error, mostrar mensaje básico
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No puedes reducir el número de series si ya tienes series registradas.\nSolo puedes agregar más series.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          return;
+        }
+      }
     }
 
     setState(() {

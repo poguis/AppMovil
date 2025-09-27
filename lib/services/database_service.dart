@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 5;
+  static const int _databaseVersion = 6;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -355,6 +355,16 @@ class DatabaseService {
           )
         ''');
         print('Tabla episodes creada exitosamente');
+      }
+    }
+
+    if (oldVersion < 6) {
+      // Agregar campo order a la tabla series
+      try {
+        await db.execute('ALTER TABLE series ADD COLUMN display_order INTEGER DEFAULT 0');
+        print('Campo display_order agregado a la tabla series');
+      } catch (e) {
+        print('Error agregando campo display_order: $e');
       }
     }
   }

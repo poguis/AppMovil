@@ -15,7 +15,7 @@ void main() async {
     // Si hay error con la base de datos, continuar de todas formas
     print('Error inicializando base de datos: $e');
   }
-  
+    
   runApp(const MyApp());
 }
 

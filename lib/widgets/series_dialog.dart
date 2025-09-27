@@ -6,12 +6,14 @@ class SeriesDialog extends StatefulWidget {
   final int categoryId;
   final int maxSeries;
   final Series? series;
+  final List<SeriesStatus>? allowedStatuses; // Estados permitidos para esta serie
 
   const SeriesDialog({
     super.key,
     required this.categoryId,
     required this.maxSeries,
     this.series,
+    this.allowedStatuses,
   });
 
   @override
@@ -37,6 +39,17 @@ class _SeriesDialogState extends State<SeriesDialog> {
     super.initState();
     if (widget.series != null) {
       _initializeWithSeries(widget.series!);
+    } else if (widget.allowedStatuses != null && widget.allowedStatuses!.isNotEmpty) {
+      // Si hay estados permitidos pero no es edición, seleccionar el primero disponible
+      _selectedStatus = widget.allowedStatuses!.first;
+      // Activar automáticamente creación de temporadas si es necesario
+      final needsSeasonsData = _selectedStatus == SeriesStatus.nueva || 
+                             _selectedStatus == SeriesStatus.mirando || 
+                             _selectedStatus == SeriesStatus.terminada ||
+                             _selectedStatus == SeriesStatus.enEspera;
+      if (needsSeasonsData) {
+        _isCreatingSeasons = true;
+      }
     }
   }
 
@@ -214,6 +227,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
   }
 
   Widget _buildStatusSelector() {
+    // Filtrar estados permitidos, si no hay restricciones mostrar todos
+    final allowedStatuses = widget.allowedStatuses ?? SeriesStatus.values;
+    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -224,7 +240,7 @@ class _SeriesDialogState extends State<SeriesDialog> {
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
-          children: SeriesStatus.values.map((status) {
+          children: allowedStatuses.map((status) {
             final isSelected = _selectedStatus == status;
             return FilterChip(
               selected: isSelected,

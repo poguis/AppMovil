@@ -20,6 +20,7 @@ class Series {
   final int currentEpisode;
   final DateTime? startWatchingDate;
   final DateTime? finishWatchingDate;
+  final int displayOrder;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -33,6 +34,7 @@ class Series {
     required this.currentEpisode,
     this.startWatchingDate,
     this.finishWatchingDate,
+    this.displayOrder = 0,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -48,6 +50,7 @@ class Series {
       'current_episode': currentEpisode,
       'start_watching_date': startWatchingDate?.toIso8601String(),
       'finish_watching_date': finishWatchingDate?.toIso8601String(),
+      'display_order': displayOrder,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -71,6 +74,7 @@ class Series {
       finishWatchingDate: map['finish_watching_date'] != null
           ? DateTime.parse(map['finish_watching_date'] as String)
           : null,
+      displayOrder: map['display_order'] as int? ?? 0,
       createdAt: DateTime.parse(map['created_at'] as String),
       updatedAt: DateTime.parse(map['updated_at'] as String),
     );
@@ -158,6 +162,7 @@ class Series {
     int? currentEpisode,
     DateTime? startWatchingDate,
     DateTime? finishWatchingDate,
+    int? displayOrder,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -171,6 +176,7 @@ class Series {
       currentEpisode: currentEpisode ?? this.currentEpisode,
       startWatchingDate: startWatchingDate ?? this.startWatchingDate,
       finishWatchingDate: finishWatchingDate ?? this.finishWatchingDate,
+      displayOrder: displayOrder ?? this.displayOrder,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

@@ -37,7 +37,7 @@ class SeriesService {
       _seriesTable,
       where: 'category_id = ?',
       whereArgs: [categoryId],
-      orderBy: 'name ASC',
+      orderBy: 'display_order ASC, name ASC',
     );
 
     return List.generate(maps.length, (i) {
@@ -77,6 +77,26 @@ class SeriesService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // Actualizar orden de las series
+  static Future<void> updateSeriesOrder(List<Series> seriesList) async {
+    final db = await DatabaseService.database;
+    
+    for (int i = 0; i < seriesList.length; i++) {
+      final series = seriesList[i];
+      final updatedSeries = series.copyWith(
+        displayOrder: i,
+        updatedAt: DateTime.now(),
+      );
+      
+      await db.update(
+        _seriesTable,
+        updatedSeries.toMap(),
+        where: 'id = ?',
+        whereArgs: [series.id],
+      );
+    }
   }
 
   // CRUD para Seasons
@@ -294,7 +314,7 @@ class SeriesService {
     await updateEpisode(updatedEpisode);
 
     // Actualizar contador de capítulos vistos en la temporada
-    await _updateSeasonWatchedCount(episode.seasonId);
+    await updateSeasonWatchedCount(episode.seasonId);
   }
 
   // Método para marcar capítulo como parcialmente visto
@@ -313,7 +333,7 @@ class SeriesService {
   }
 
   // Método privado para actualizar contador de capítulos vistos
-  static Future<void> _updateSeasonWatchedCount(int seasonId) async {
+  static Future<void> updateSeasonWatchedCount(int seasonId) async {
     final db = await DatabaseService.database;
     final result = await db.rawQuery('''
       SELECT COUNT(*) as count 
@@ -420,11 +440,19 @@ class SeriesService {
 
     // Crear temporadas y capítulos
     for (final seasonData in seasonsData) {
+      final seasonNumber = seasonData['seasonNumber'] is int 
+          ? seasonData['seasonNumber'] as int 
+          : throw ArgumentError('Invalid seasonNumber type');
+      final title = seasonData['title'] as String?;
+      final totalEpisodes = seasonData['totalEpisodes'] is int 
+          ? seasonData['totalEpisodes'] as int 
+          : throw ArgumentError('Invalid totalEpisodes type');
+      
       final season = Season(
         seriesId: seriesId,
-        seasonNumber: seasonData['seasonNumber'] as int,
-        title: seasonData['title'] as String?,
-        totalEpisodes: seasonData['totalEpisodes'] as int,
+        seasonNumber: seasonNumber,
+        title: title,
+        totalEpisodes: totalEpisodes,
         watchedEpisodes: 0,
         createdAt: now,
         updatedAt: now,
@@ -440,11 +468,11 @@ class SeriesService {
         
         // Si es estado "mirando", marcar como vistos los capítulos anteriores al punto actual
         if (status == SeriesStatus.mirando && startSeason != null && startEpisode != null) {
-          final seasonNum = seasonData['seasonNumber'] as int;
+          final seasonNum = seasonData['seasonNumber'];
           final episodeNum = i;
           
-          if (seasonNum < startSeason || 
-              (seasonNum == startSeason && episodeNum < startEpisode)) {
+          if (seasonNum is int && (seasonNum < startSeason || 
+              (seasonNum == startSeason && episodeNum < startEpisode))) {
             episodeStatus = EpisodeStatus.visto;
           }
         }
@@ -463,19 +491,23 @@ class SeriesService {
       }
       
       // Actualizar contador de capítulos vistos para la temporada
-      if (status == SeriesStatus.mirando) {
+      if (status == SeriesStatus.mirando && startSeason != null) {
         int watchedCount = 0;
-        if (seasonData['seasonNumber'] as int? == startSeason) {
+        final seasonNumber = seasonData['seasonNumber'];
+        
+        if (seasonNumber is int && seasonNumber == startSeason) {
           // En la temporada actual, contar capítulos vistos
           watchedCount = (startEpisode ?? 1) - 1;
-        } else if (seasonData['seasonNumber'] as int? != null && 
-                   (seasonData['seasonNumber'] as int) < (startSeason ?? 1)) {
+        } else if (seasonNumber is int && seasonNumber < startSeason) {
           // Temporadas anteriores están completamente vistas
-          watchedCount = seasonData['totalEpisodes'] as int;
+          final totalEpisodes = seasonData['totalEpisodes'];
+          if (totalEpisodes is int) {
+            watchedCount = totalEpisodes;
+          }
         }
         
         if (watchedCount > 0) {
-          await _updateSeasonWatchedCount(seasonId);
+          await updateSeasonWatchedCount(seasonId);
         }
       }
     }

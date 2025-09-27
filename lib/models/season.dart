@@ -102,7 +102,7 @@ class Season {
     } else if (isInProgress) {
       return 'En progreso';
     } else {
-      return 'No iniciada';
+      return 'Iniciada';
     }
   }
 

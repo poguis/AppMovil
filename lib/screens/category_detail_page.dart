@@ -7,6 +7,7 @@ import '../models/episode.dart';
 import '../services/series_service.dart';
 import '../widgets/series_dialog.dart';
 import '../widgets/season_episode_dialog.dart';
+import 'episode_log_page.dart';
 
 class CategoryDetailPage extends StatefulWidget {
   final SeriesAnimeCategory category;
@@ -23,7 +24,7 @@ class CategoryDetailPage extends StatefulWidget {
 class _CategoryDetailPageState extends State<CategoryDetailPage> {
   List<Series> _series = [];
   bool _isLoading = true;
-  String _selectedStatus = 'all'; // 'all', 'nueva', 'mirando', 'terminada', 'enEspera'
+  String _selectedStatus = 'all'; // 'all', 'nueva', 'mirando', 'terminada', 'enEspera', 'historial'
 
   @override
   void initState() {
@@ -58,11 +59,21 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   }
 
   Future<void> _showAddSeriesDialog() async {
+    // Determinar qué estados permitir según el espacio disponible
+    List<SeriesStatus>? allowedStatuses;
+    final activeWatchingCount = _series.where((series) => series.status == SeriesStatus.mirando).length;
+    
+    // Si el límite de series "mirando" está lleno, solo permitir "En Espera" y "Terminado"
+    if (activeWatchingCount >= widget.category.numberOfSeries) {
+      allowedStatuses = [SeriesStatus.enEspera, SeriesStatus.terminada];
+    }
+    
     final result = await showDialog<dynamic>(
       context: context,
       builder: (context) => SeriesDialog(
         categoryId: widget.category.id!,
         maxSeries: widget.category.numberOfSeries,
+        allowedStatuses: allowedStatuses, // Todos los estados o solo En Espera y Terminado según el espacio
       ),
     );
 
@@ -230,12 +241,37 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   }
 
   List<Series> get _filteredSeries {
-    if (_selectedStatus == 'all') return _series;
-    return _series.where((series) => series.status.name == _selectedStatus).toList();
+    if (_selectedStatus == 'all') {
+      // En "Todas" no mostrar las terminadas (van al historial)
+      return _series.where((series) => series.status != SeriesStatus.terminada).toList();
+    } else if (_selectedStatus == 'historial') {
+      // En "Historial" solo mostrar las terminadas
+      return _series.where((series) => series.status == SeriesStatus.terminada).toList();
+    } else {
+      // Para otros filtros, mostrar según el estado seleccionado
+      return _series.where((series) => series.status.name == _selectedStatus).toList();
+    }
   }
 
   bool get _canAddMoreSeries {
-    return _series.length < widget.category.numberOfSeries;
+    // Solo las series "mirando" cuentan para el límite total
+    final activeWatchingCount = _series.where((series) => series.status == SeriesStatus.mirando).length;
+    return activeWatchingCount < widget.category.numberOfSeries;
+  }
+
+  Future<void> _updateSeriesOrder() async {
+    try {
+      await SeriesService.updateSeriesOrder(_filteredSeries);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al actualizar el orden: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildSeriesView() {
@@ -245,9 +281,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              widget.category.type == 'video' 
-                  ? Icons.play_circle_outline
-                  : Icons.menu_book,
+              _selectedStatus == 'historial' 
+                  ? Icons.history
+                  : widget.category.type == 'video' 
+                      ? Icons.play_circle_outline
+                      : Icons.menu_book,
               size: 80,
               color: Colors.grey,
             ),
@@ -255,7 +293,9 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
             Text(
               _selectedStatus == 'all'
                   ? 'No hay series registradas'
-                  : 'No hay series con estado "${SeriesStatus.values.firstWhere((s) => s.name == _selectedStatus).displayName}"',
+                  : _selectedStatus == 'historial'
+                      ? 'No hay series en el historial'
+                      : 'No hay series con estado "${SeriesStatus.values.firstWhere((s) => s.name == _selectedStatus).displayName}"',
               style: const TextStyle(
                 fontSize: 18,
                 color: Colors.grey,
@@ -274,12 +314,30 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       );
     }
 
-    return ListView.builder(
+    // Vista especial para historial
+    if (_selectedStatus == 'historial') {
+      return _buildHistoryView();
+    }
+
+    return ReorderableListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       itemCount: _filteredSeries.length,
+      onReorder: (oldIndex, newIndex) {
+        setState(() {
+          if (oldIndex < newIndex) {
+            newIndex -= 1;
+          }
+          final item = _filteredSeries.removeAt(oldIndex);
+          _filteredSeries.insert(newIndex, item);
+          
+          // Actualizar el orden en la base de datos
+          _updateSeriesOrder();
+        });
+      },
       itemBuilder: (context, index) {
         final series = _filteredSeries[index];
         return Card(
+          key: ValueKey(series.id),
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: CircleAvatar(
@@ -387,6 +445,187 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     );
   }
 
+  Widget _buildHistoryView() {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: _filteredSeries.length,
+      itemBuilder: (context, index) {
+        final series = _filteredSeries[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: series.statusColor.withValues(alpha: 0.1),
+                      child: Icon(
+                        Icons.check_circle,
+                        color: series.statusColor,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            series.name,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (series.description != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              series.description!,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    PopupMenuButton<String>(
+                      onSelected: (value) async {
+                        if (value == 'delete') {
+                          await _deleteSeries(series);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete, color: Colors.red),
+                              SizedBox(width: 8),
+                              Text('Eliminar', style: TextStyle(color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Información de la serie',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildHistoryInfoItem(
+                              'Progreso Final',
+                              'Temporada ${series.currentSeason}, Capítulo ${series.currentEpisode}',
+                              Icons.flag,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildHistoryInfoItem(
+                              'Fecha de Finalización',
+                              series.finishWatchingDate != null 
+                                  ? DateFormat('dd/MM/yyyy').format(series.finishWatchingDate!)
+                                  : 'No especificada',
+                              Icons.calendar_today,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildHistoryInfoItem(
+                              'Duración Total',
+                              series.finishWatchingDate != null && series.startWatchingDate != null
+                                  ? '${_getDaysBetween(series.startWatchingDate!, series.finishWatchingDate!)} días'
+                                  : 'No calculable',
+                              Icons.schedule,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _buildHistoryInfoItem(
+                              'Estado',
+                              'Completada',
+                              Icons.check_circle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryInfoItem(String label, String value, IconData icon) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.grey[600]),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  int _getDaysBetween(DateTime start, DateTime end) {
+    return end.difference(start).inDays;
+  }
+
   Widget _buildCategoryInfo() {
     return Card(
       margin: const EdgeInsets.all(16),
@@ -415,7 +654,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                 Expanded(
                   child: _buildInfoCard(
                     'Series',
-                    '${_series.length}/${widget.category.numberOfSeries}',
+                    '${_series.where((s) => s.status == SeriesStatus.mirando).length}/${widget.category.numberOfSeries}',
                     Icons.playlist_play,
                     Colors.purple,
                   ),
@@ -487,9 +726,9 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
             const SizedBox(width: 8),
             _buildFilterChip('mirando', 'Mirando', Icons.play_circle, Colors.green),
             const SizedBox(width: 8),
-            _buildFilterChip('terminada', 'Terminada', Icons.check_circle, Colors.purple),
-            const SizedBox(width: 8),
             _buildFilterChip('enEspera', 'En Espera', Icons.pause_circle, Colors.orange),
+            const SizedBox(width: 8),
+            _buildFilterChip('historial', 'Historial', Icons.history, Colors.grey),
           ],
         ),
       ),
@@ -554,10 +793,44 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         ],
       ),
       floatingActionButton: _canAddMoreSeries
-          ? FloatingActionButton(
-              onPressed: _showAddSeriesDialog,
-              child: const Icon(Icons.add),
-              tooltip: 'Agregar Serie',
+          ? Builder(
+              builder: (context) {
+                // Determinar el tooltip según el espacio
+                final activeWatchingCount = _series.where((series) => series.status == SeriesStatus.mirando).length;
+                final tooltip = activeWatchingCount >= widget.category.numberOfSeries 
+                    ? 'Agregar Serie (Solo En Espera y Terminado)' 
+                    : 'Agregar Serie';
+                
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    FloatingActionButton(
+                      heroTag: "episode_log",
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => EpisodeLogPage(
+                              categoryId: widget.category.id!,
+                              categoryName: widget.category.name,
+                            ),
+                          ),
+                        );
+                      },
+                      backgroundColor: Colors.purple,
+                      child: const Icon(Icons.list_alt, color: Colors.white),
+                      tooltip: 'Registro de Episodios',
+                    ),
+                    const SizedBox(height: 16),
+                    FloatingActionButton(
+                      heroTag: "add_series",
+                      onPressed: _showAddSeriesDialog,
+                      child: const Icon(Icons.add),
+                      tooltip: tooltip,
+                    ),
+                  ],
+                );
+              },
             )
           : null,
     );
