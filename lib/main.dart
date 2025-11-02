@@ -5,7 +5,7 @@ import 'screens/home_page.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
 
-void main() async {
+void main() async { 
   WidgetsFlutterBinding.ensureInitialized();
   
   try {
