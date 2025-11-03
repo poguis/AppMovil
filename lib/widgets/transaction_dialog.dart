@@ -107,7 +107,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
         finalCategories.addAll(customCategories);
         
       } else {
-        // Para quitar dinero: solo "Préstamo" + categorías personalizadas
+        // Para quitar dinero: "Préstamo" Y "Me deben" + categorías personalizadas
         final prestamoCategory = allCategories.firstWhere(
           (cat) => cat.name == 'Préstamo',
           orElse: () => Category(
@@ -126,9 +126,28 @@ class _TransactionDialogState extends State<TransactionDialog> {
           finalCategories.add(prestamoCategory);
         }
         
-        // Agregar categorías personalizadas (excluyendo "Préstamo" si ya existe)
+        // También agregar "Me deben" para el botón QUITAR
+        final meDebenCategory = allCategories.firstWhere(
+          (cat) => cat.name == 'Me deben',
+          orElse: () => Category(
+            id: -1,
+            name: '',
+            type: '',
+            color: '',
+            icon: '',
+            isDefault: false,
+            userId: null,
+            createdAt: DateTime.now(),
+          ),
+        );
+        
+        if (meDebenCategory.id != -1) {
+          finalCategories.add(meDebenCategory);
+        }
+        
+        // Agregar categorías personalizadas (excluyendo las base si ya existen)
         final customCategories = allCategories.where((cat) => 
-          cat.name != 'Préstamo' && !cat.isDefault
+          cat.name != 'Préstamo' && cat.name != 'Me deben' && !cat.isDefault
         ).toList();
         finalCategories.addAll(customCategories);
       }
@@ -206,8 +225,11 @@ class _TransactionDialogState extends State<TransactionDialog> {
         }
       } else {
         if (category.name == 'Préstamo') {
-          // "Préstamo" - cargar personas a las que debo (para pedir préstamo) Y permitir agregar nuevas
+          // "Préstamo" - cargar personas a las que debo (para pagar deuda) Y permitir agregar nuevas
           persons = await PersonService.getPersonsByType(currentUser.id!, 'debt');
+        } else if (category.name == 'Me deben') {
+          // "Me deben" (expense) - cargar personas a las que les presté dinero Y permitir agregar nuevas
+          persons = await PersonService.getPersonsByType(currentUser.id!, 'loan');
         }
       }
 
@@ -230,12 +252,15 @@ class _TransactionDialogState extends State<TransactionDialog> {
     try {
       String type = 'loan'; // Por defecto
       if (widget.type == 'income' && _selectedCategory?.name == 'Me deben') {
-        // Para "Me deben", mostrar cuánto me deben
+        // Para "Me deben" (income), mostrar cuánto me deben
         type = 'loan';
       } else if ((widget.type == 'income' && _selectedCategory?.name == 'Préstamos') ||
                  (widget.type == 'expense' && _selectedCategory?.name == 'Préstamo')) {
         // Para "Préstamos" (income) o "Préstamo" (expense), mostrar cuánto le debo
         type = 'debt';
+      } else if (widget.type == 'expense' && _selectedCategory?.name == 'Me deben') {
+        // Para "Me deben" (expense), mostrar cuánto me deben (para actualizar cuando preste más)
+        type = 'loan';
       }
 
       final amount = await PersonService.getTotalPendingByPerson(currentUser.id!, personName, type);
@@ -308,9 +333,11 @@ class _TransactionDialogState extends State<TransactionDialog> {
   bool _canAddNewPerson() {
     if (_selectedCategory == null) return false;
     
-    // Solo permitir agregar nuevas personas en "Préstamos" (income)
-    // Para "Préstamo" (expense/quitar) NO se puede agregar nuevas personas
-    return _selectedCategory!.name == 'Préstamos';
+    // Permitir agregar nuevas personas en:
+    // - "Préstamos" (income): pedir préstamo
+    // - "Me deben" (expense): prestar dinero
+    return _selectedCategory!.name == 'Préstamos' || 
+           (widget.type == 'expense' && _selectedCategory!.name == 'Me deben');
   }
 
   @override
@@ -497,11 +524,13 @@ class _TransactionDialogState extends State<TransactionDialog> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        _selectedCategory?.name == 'Me deben'
+                        _selectedCategory?.name == 'Me deben' && widget.type == 'income'
                             ? 'No hay personas que te deban dinero. Ve a "Deudas y Préstamos" para registrar préstamos.'
-                            : _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
-                                ? 'No tienes deudas pendientes para pagar.'
-                                : 'No hay personas registradas para esta categoría. Ve a "Deudas y Préstamos" para agregar personas.',
+                            : _selectedCategory?.name == 'Me deben' && widget.type == 'expense'
+                                ? 'No hay personas registradas para esta categoría. Puedes agregar una nueva persona.'
+                                : _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
+                                    ? 'No tienes deudas pendientes para pagar.'
+                                    : 'No hay personas registradas para esta categoría. Ve a "Deudas y Préstamos" para agregar personas.',
                         style: const TextStyle(color: Colors.orange),
                       ),
                     )
@@ -559,7 +588,9 @@ class _TransactionDialogState extends State<TransactionDialog> {
                               ? _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
                                   ? 'Deuda a pagar con $_selectedPerson:'
                                   : 'Deuda actual con $_selectedPerson:'
-                              : 'Información de $_selectedPerson:',
+                              : _selectedCategory?.name == 'Me deben' && widget.type == 'expense'
+                                  ? 'Préstamo con $_selectedPerson:'
+                                  : 'Información de $_selectedPerson:',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -569,15 +600,19 @@ class _TransactionDialogState extends State<TransactionDialog> {
                         Text(
                           (_selectedCategory?.name == 'Préstamo' || _selectedCategory?.name == 'Préstamos')
                               ? 'Le debes: \$${_pendingAmount.toStringAsFixed(2)}'
-                              : widget.type == 'income' 
+                              : _selectedCategory?.name == 'Me deben' && widget.type == 'expense'
                                   ? 'Te debe: \$${_pendingAmount.toStringAsFixed(2)}'
-                                  : 'Le debes: \$${_pendingAmount.toStringAsFixed(2)}',
+                                  : widget.type == 'income' 
+                                      ? 'Te debe: \$${_pendingAmount.toStringAsFixed(2)}'
+                                      : 'Le debes: \$${_pendingAmount.toStringAsFixed(2)}',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                             color: (_selectedCategory?.name == 'Préstamo' || _selectedCategory?.name == 'Préstamos')
                                 ? Colors.red 
-                                : widget.type == 'income' ? Colors.green : Colors.red,
+                                : _selectedCategory?.name == 'Me deben' && widget.type == 'expense'
+                                    ? Colors.green
+                                    : widget.type == 'income' ? Colors.green : Colors.red,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -586,6 +621,8 @@ class _TransactionDialogState extends State<TransactionDialog> {
                               ? _selectedCategory?.name == 'Préstamo' && widget.type == 'expense'
                                   ? 'Se reducirá tu deuda actual'
                                   : 'Se sumará a tu deuda actual'
+                              : _selectedCategory?.name == 'Me deben' && widget.type == 'expense'
+                                  ? 'Se sumará a tu préstamo actual'
                               : 'Cantidad sugerida: \$${_pendingAmount.toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontSize: 14,

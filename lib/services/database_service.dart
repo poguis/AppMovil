@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 6;
+  static const int _databaseVersion = 8;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -56,8 +56,8 @@ class DatabaseService {
     // Tabla de dinero actual
     await db.execute('''
       CREATE TABLE money_balance (
-        id INTEGER PRIMARY KEY,
-        user_id INTEGER,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER UNIQUE NOT NULL,
         amount REAL NOT NULL DEFAULT 0.0,
         last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id)
@@ -211,6 +211,7 @@ class DatabaseService {
       
       // Categorías base para quitar dinero (expense)  
       {'name': 'Préstamo', 'type': 'expense', 'color': '#FF9800', 'icon': 'money', 'is_default': 1},
+      {'name': 'Me deben', 'type': 'expense', 'color': '#4CAF50', 'icon': 'account_balance_wallet', 'is_default': 1},
     ];
 
     for (var category in defaultCategories) {
@@ -365,6 +366,77 @@ class DatabaseService {
         print('Campo display_order agregado a la tabla series');
       } catch (e) {
         print('Error agregando campo display_order: $e');
+      }
+    }
+
+    if (oldVersion < 7) {
+      // Corregir tabla money_balance: eliminar duplicados y agregar constraint UNIQUE
+      try {
+        // Primero, eliminar posibles registros duplicados, manteniendo solo el más reciente
+        final duplicates = await db.rawQuery('''
+          SELECT user_id, MAX(last_updated) as max_date
+          FROM money_balance
+          GROUP BY user_id
+          HAVING COUNT(*) > 1
+        ''');
+
+        for (var dup in duplicates) {
+          final userId = dup['user_id'] as int;
+          final maxDate = dup['max_date'] as String;
+          
+          // Eliminar todos los registros excepto el más reciente
+          await db.rawDelete('''
+            DELETE FROM money_balance 
+            WHERE user_id = ? AND last_updated != ?
+          ''', [userId, maxDate]);
+        }
+
+        // Recrear la tabla con la constraint UNIQUE correcta
+        await db.execute('DROP TABLE IF EXISTS money_balance_backup');
+        await db.execute('CREATE TABLE money_balance_backup AS SELECT * FROM money_balance');
+        await db.execute('DROP TABLE money_balance');
+        await db.execute('''
+          CREATE TABLE money_balance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            amount REAL NOT NULL DEFAULT 0.0,
+            last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+          )
+        ''');
+        await db.execute('INSERT INTO money_balance SELECT * FROM money_balance_backup');
+        await db.execute('DROP TABLE money_balance_backup');
+        
+        print('Tabla money_balance actualizada con constraint UNIQUE');
+      } catch (e) {
+        print('Error actualizando tabla money_balance: $e');
+      }
+    }
+
+    if (oldVersion < 8) {
+      // Agregar categoría "Me deben" para expense (Quitar dinero)
+      try {
+        // Verificar si la categoría ya existe
+        final existingCategory = await db.query(
+          'categories',
+          where: 'name = ? AND type = ?',
+          whereArgs: ['Me deben', 'expense'],
+        );
+
+        if (existingCategory.isEmpty) {
+          await db.insert('categories', {
+            'name': 'Me deben',
+            'type': 'expense',
+            'color': '#4CAF50',
+            'icon': 'account_balance_wallet',
+            'is_default': 1,
+          });
+          print('Categoría "Me deben" para expense agregada exitosamente');
+        } else {
+          print('Categoría "Me deben" para expense ya existe, saltando creación');
+        }
+      } catch (e) {
+        print('Error agregando categoría "Me deben" para expense: $e');
       }
     }
   }

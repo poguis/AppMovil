@@ -41,7 +41,9 @@ class TransactionService {
     } else if (transaction.type == 'income' && category.name == 'Préstamos') {
       debtLoanType = 'debt'; // Pedí préstamo (aumentar lo que debo)
     } else if (transaction.type == 'expense' && category.name == 'Préstamo') {
-      debtLoanType = 'debt'; // Debo dinero (aumentar lo que debo)
+      debtLoanType = 'debt'; // Pago mi deuda (reducir lo que debo)
+    } else if (transaction.type == 'expense' && category.name == 'Me deben') {
+      debtLoanType = 'loan'; // Presto dinero (aumentar lo que me deben)
     } else {
       return; // No es una categoría especial
     }
@@ -65,8 +67,14 @@ class TransactionService {
           await _consolidateDebtLoan(transaction.userId, personName, debtLoanType, transaction.amount, totalExisting, transaction.description);
         }
       } else {
-        // Para expense (QUITAR): pagar deuda, reducir el monto
-        await _reduceDebtLoanAmount(transaction.userId, personName, debtLoanType, transaction.amount);
+        // Para expense (QUITAR)
+        if (category.name == 'Préstamo') {
+          // Para "Préstamo": pago mi deuda, reducir el monto
+          await _reduceDebtLoanAmount(transaction.userId, personName, debtLoanType, transaction.amount);
+        } else if (category.name == 'Me deben') {
+          // Para "Me deben": presto dinero, consolidar en un solo registro (aumentar lo que me deben)
+          await _consolidateDebtLoan(transaction.userId, personName, debtLoanType, transaction.amount, totalExisting, transaction.description);
+        }
       }
     } else {
       // No hay registros existentes
@@ -76,7 +84,7 @@ class TransactionService {
         // (no se puede recibir pago de alguien que no te debe nada, ni pagar a alguien que no le debes nada)
         return;
       } else {
-        // Para "Préstamos" (income) y otros casos, crear uno nuevo
+        // Para "Préstamos" (income) y "Me deben" (expense), crear uno nuevo
         final newDebtLoan = DebtLoan(
           userId: transaction.userId,
           personName: personName,
