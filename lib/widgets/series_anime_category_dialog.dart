@@ -278,18 +278,36 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
       context: context,
       initialDate: _startDate,
       firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      lastDate: DateTime.now(),
     );
 
     if (picked != null) {
+      // No permitir fechas futuras
+      final today = DateTime.now();
+      final clamped = picked.isAfter(DateTime(today.year, today.month, today.day))
+          ? DateTime(today.year, today.month, today.day)
+          : picked;
       setState(() {
-        _startDate = picked;
+        _startDate = clamped;
       });
     }
   }
 
   Future<void> _saveCategory() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Validar que la fecha no sea futura
+    final today = DateTime.now();
+    final startIsAfterToday = _startDate.isAfter(DateTime(today.year, today.month, today.day));
+    if (startIsAfterToday) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('La fecha de inicio no puede ser futura'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     // Validar que se hayan seleccionado días
     if (_selectedDays.isEmpty) {

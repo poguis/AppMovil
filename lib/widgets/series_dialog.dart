@@ -39,6 +39,8 @@ class _SeriesDialogState extends State<SeriesDialog> {
     super.initState();
     if (widget.series != null) {
       _initializeWithSeries(widget.series!);
+      // En edición, la gestión de temporadas es opcional
+      _isCreatingSeasons = false;
     } else if (widget.allowedStatuses != null && widget.allowedStatuses!.isNotEmpty) {
       // Si hay estados permitidos pero no es edición, seleccionar el primero disponible
       _selectedStatus = widget.allowedStatuses!.first;
@@ -159,10 +161,14 @@ class _SeriesDialogState extends State<SeriesDialog> {
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
-    final needsSeasonsData = _selectedStatus == SeriesStatus.nueva || 
-                           _selectedStatus == SeriesStatus.mirando || 
-                           _selectedStatus == SeriesStatus.terminada ||
-                           _selectedStatus == SeriesStatus.enEspera;
+    final bool isEditing = widget.series != null;
+    // Para creación, puede requerir temporadas; para edición, nunca es obligatorio
+    final needsSeasonsData = !isEditing && (
+      _selectedStatus == SeriesStatus.nueva || 
+      _selectedStatus == SeriesStatus.mirando || 
+      _selectedStatus == SeriesStatus.terminada ||
+      _selectedStatus == SeriesStatus.enEspera
+    );
 
     if (needsSeasonsData && (_isCreatingSeasons != true || _seasonsData.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -214,7 +220,7 @@ class _SeriesDialogState extends State<SeriesDialog> {
       }
     }
 
-    // Crear la serie con temporadas y episodios si es necesario
+    // Crear la serie con temporadas y episodios si es necesario (solo creación)
     if (needsSeasonsData) {
       Navigator.of(context).pop({
         'series': _createSeries(),
@@ -222,6 +228,7 @@ class _SeriesDialogState extends State<SeriesDialog> {
         'hasSeasonsData': true,
       });
     } else {
+      // En edición o creación simple, devolver solo la entidad Series
       Navigator.of(context).pop(_createSeries());
     }
   }
@@ -393,10 +400,13 @@ class _SeriesDialogState extends State<SeriesDialog> {
 
   Widget _buildSeasonsSection() {
     // Para nueva, mirando, terminada y enEspera la creación de temporadas es obligatoria
-    final needsSeasonsData = _selectedStatus == SeriesStatus.nueva || 
-                           _selectedStatus == SeriesStatus.mirando || 
-                           _selectedStatus == SeriesStatus.terminada ||
-                           _selectedStatus == SeriesStatus.enEspera;
+    final isEditing = widget.series != null;
+    final needsSeasonsData = !isEditing && (
+      _selectedStatus == SeriesStatus.nueva || 
+      _selectedStatus == SeriesStatus.mirando || 
+      _selectedStatus == SeriesStatus.terminada ||
+      _selectedStatus == SeriesStatus.enEspera
+    );
     
     // Activar automáticamente si es necesario
     if (needsSeasonsData && !_isCreatingSeasons) {

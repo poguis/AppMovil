@@ -21,6 +21,7 @@ class _DineroPageState extends State<DineroPage> {
   DateTime? _startDate;
   DateTime? _endDate;
   List<Map<String, dynamic>> _filteredTransactions = [];
+  List<Map<String, dynamic>> _groupedTransactions = [];
 
   @override
   void initState() {
@@ -42,6 +43,7 @@ class _DineroPageState extends State<DineroPage> {
       _filteredTransactions = transactions;
       _isLoading = false;
     });
+    _computeGroupedTransactions();
 
     // Si no hay dinero registrado o está en cero, mostrar el diálogo
     if (!hasMoney || money == 0.0) {
@@ -170,7 +172,47 @@ class _DineroPageState extends State<DineroPage> {
         return true;
       }).toList();
     }
+    _computeGroupedTransactions();
     setState(() {});
+  }
+
+  void _computeGroupedTransactions() {
+    // Agrupar por día (YYYY-MM-DD), categoría y tipo (income/expense)
+    final Map<String, Map<String, dynamic>> groups = {};
+
+    for (final t in _filteredTransactions) {
+      final DateTime dt = DateTime.parse(t['date'] as String);
+      final String dayKey = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      final String categoryName = (t['category_name'] as String?) ?? 'Sin categoría';
+      final String type = t['type'] as String; // 'income' o 'expense'
+      final String groupKey = '$dayKey|$categoryName|$type';
+
+      if (!groups.containsKey(groupKey)) {
+        groups[groupKey] = {
+          'day': DateTime(dt.year, dt.month, dt.day),
+          'category_name': categoryName,
+          'type': type,
+          'total': 0.0,
+          'items': <Map<String, dynamic>>[],
+        };
+      }
+
+      final double amount = (t['amount'] as num).toDouble();
+      groups[groupKey]!['total'] = (groups[groupKey]!['total'] as double) + amount;
+      (groups[groupKey]!['items'] as List<Map<String, dynamic>>).add(t);
+    }
+
+    // Ordenar: por fecha desc y luego por tipo
+    final list = groups.values.toList();
+    list.sort((a, b) {
+      final DateTime da = a['day'] as DateTime;
+      final DateTime db = b['day'] as DateTime;
+      final int cmpDate = db.compareTo(da);
+      if (cmpDate != 0) return cmpDate;
+      return (a['category_name'] as String).compareTo(b['category_name'] as String);
+    });
+
+    _groupedTransactions = list;
   }
 
   Future<void> _selectDateRange() async {
@@ -209,6 +251,7 @@ class _DineroPageState extends State<DineroPage> {
       _endDate = null;
       _filteredTransactions = _transactions;
     });
+    _computeGroupedTransactions();
   }
 
   void _setLast7DaysFilter() {
@@ -437,7 +480,7 @@ class _DineroPageState extends State<DineroPage> {
                         ],
                         const SizedBox(height: 16),
                         Expanded(
-                          child: _filteredTransactions.isEmpty
+                          child: _groupedTransactions.isEmpty
                               ? const Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -459,20 +502,20 @@ class _DineroPageState extends State<DineroPage> {
                                   ),
                                 )
                               : ListView.builder(
-                                  itemCount: _filteredTransactions.length,
+                                  itemCount: _groupedTransactions.length,
                                   itemBuilder: (context, index) {
-                                    final transaction = _filteredTransactions[index];
-                                    final isIncome = transaction['type'] == 'income';
-                                    final amount = transaction['amount'] as double;
-                                    final categoryName = transaction['category_name'] as String? ?? 'Sin categoría';
-                                    final description = transaction['description'] as String?;
-                                    final date = DateTime.parse(transaction['date'] as String);
-                                    
+                                    final group = _groupedTransactions[index];
+                                    final bool isIncome = group['type'] == 'income';
+                                    final double total = (group['total'] as num).toDouble();
+                                    final String categoryName = group['category_name'] as String;
+                                    final DateTime day = group['day'] as DateTime;
+                                    final List<Map<String, dynamic>> items = List<Map<String, dynamic>>.from(group['items'] as List);
+
                                     return Card(
                                       margin: const EdgeInsets.only(bottom: 8),
-                                      child: ListTile(
+                                      child: ExpansionTile(
                                         leading: CircleAvatar(
-                                          backgroundColor: isIncome 
+                                          backgroundColor: isIncome
                                               ? Colors.green.withValues(alpha: 0.1)
                                               : Colors.red.withValues(alpha: 0.1),
                                           child: Icon(
@@ -484,25 +527,39 @@ class _DineroPageState extends State<DineroPage> {
                                           categoryName,
                                           style: const TextStyle(fontWeight: FontWeight.bold),
                                         ),
-                                        subtitle: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            if (description != null && description.isNotEmpty)
-                                              Text(description),
-                                            Text(
-                                              '${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
-                                              style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                            ),
-                                          ],
+                                        subtitle: Text(
+                                          '${day.day}/${day.month}/${day.year}',
+                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
                                         ),
                                         trailing: Text(
-                                          '${isIncome ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
+                                          '${isIncome ? '+' : '-'}\$${total.toStringAsFixed(2)}',
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.bold,
                                             color: isIncome ? Colors.green : Colors.red,
                                           ),
                                         ),
+                                        children: items.map((t) {
+                                          final DateTime dt = DateTime.parse(t['date'] as String);
+                                          final String? desc = t['description'] as String?;
+                                          final double amount = (t['amount'] as num).toDouble();
+                                          final bool itemIncome = t['type'] == 'income';
+                                          return ListTile(
+                                            dense: true,
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                                            title: Text(
+                                              '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}' + (desc != null && desc.isNotEmpty ? ' · $desc' : ''),
+                                              style: const TextStyle(fontSize: 14),
+                                            ),
+                                            trailing: Text(
+                                              '${itemIncome ? '+' : '-'}\$${amount.toStringAsFixed(2)}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                color: itemIncome ? Colors.green : Colors.red,
+                                              ),
+                                            ),
+                                          );
+                                        }).toList(),
                                       ),
                                     );
                                   },

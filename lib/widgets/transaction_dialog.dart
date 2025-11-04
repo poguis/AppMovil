@@ -3,6 +3,7 @@ import '../models/category.dart';
 import '../services/category_service.dart';
 import '../services/person_service.dart';
 import '../services/auth_service.dart';
+import '../services/money_service.dart';
 
 class TransactionDialog extends StatefulWidget {
   final String type; // 'income' o 'expense'
@@ -34,6 +35,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
   String? _selectedPerson;
   bool _isLoadingPersons = false;
   double _pendingAmount = 0.0;
+  double _currentMoney = 0.0;
 
   @override
   void initState() {
@@ -42,6 +44,7 @@ class _TransactionDialogState extends State<TransactionDialog> {
       _amountController.text = widget.initialAmount!.toStringAsFixed(2);
     }
     _loadCategories();
+    _loadCurrentMoney();
   }
 
   @override
@@ -159,6 +162,21 @@ class _TransactionDialogState extends State<TransactionDialog> {
     } catch (e) {
       setState(() {
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadCurrentMoney() async {
+    final currentUser = AuthService.currentUser;
+    if (currentUser == null) return;
+    try {
+      final money = await MoneyService.getCurrentMoney(currentUser.id!);
+      setState(() {
+        _currentMoney = money;
+      });
+    } catch (e) {
+      setState(() {
+        _currentMoney = 0.0;
       });
     }
   }
@@ -370,6 +388,11 @@ class _TransactionDialogState extends State<TransactionDialog> {
                   }
                   if (amount <= 0) {
                     return 'La cantidad debe ser mayor a 0';
+                  }
+
+                  // Validación de saldo para QUITAR: no permitir superar el dinero actual
+                  if (widget.type == 'expense' && amount > _currentMoney) {
+                    return 'No puedes quitar más de tu dinero actual (\$${_currentMoney.toStringAsFixed(2)})';
                   }
                   
                   // Validación especial para "Me deben" - no puede agregar más de lo que le deben

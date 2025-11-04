@@ -11,6 +11,14 @@ class TransactionService {
   static Future<int> createTransaction(model.Transaction transaction, {String? personName}) async {
     final db = await DatabaseService.database;
     
+    // Validación de saldo suficiente para egresos
+    if (transaction.type == 'expense') {
+      final current = await MoneyService.getCurrentMoney(transaction.userId);
+      if (transaction.amount > current) {
+        throw Exception('Fondos insuficientes: saldo actual \$${current.toStringAsFixed(2)}');
+      }
+    }
+
     // Crear la transacción
     final transactionId = await db.insert('transactions', transaction.toMap());
     

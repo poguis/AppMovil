@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 8;
+  static const int _databaseVersion = 9;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -153,6 +153,7 @@ class DatabaseService {
         current_episode INTEGER NOT NULL DEFAULT 1,
         start_watching_date TEXT,
         finish_watching_date TEXT,
+        display_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (category_id) REFERENCES series_anime_categories (id) ON DELETE CASCADE
@@ -437,6 +438,17 @@ class DatabaseService {
         }
       } catch (e) {
         print('Error agregando categoría "Me deben" para expense: $e');
+      }
+    }
+
+    if (oldVersion < 9) {
+      // Asegurar columna display_order en tabla series
+      try {
+        await db.execute('ALTER TABLE series ADD COLUMN display_order INTEGER DEFAULT 0');
+        print('Columna display_order agregada a la tabla series (v9)');
+      } catch (e) {
+        // Si ya existe, SQLite lanzará error; lo ignoramos de forma segura
+        print('display_order ya existe o no se pudo agregar: $e');
       }
     }
   }

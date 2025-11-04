@@ -792,47 +792,46 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           ),
         ],
       ),
-      floatingActionButton: _canAddMoreSeries
-          ? Builder(
-              builder: (context) {
-                // Determinar el tooltip según el espacio
-                final activeWatchingCount = _series.where((series) => series.status == SeriesStatus.mirando).length;
-                final tooltip = activeWatchingCount >= widget.category.numberOfSeries 
-                    ? 'Agregar Serie (Solo En Espera y Terminado)' 
-                    : 'Agregar Serie';
-                
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    FloatingActionButton(
-                      heroTag: "episode_log",
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => EpisodeLogPage(
-                              categoryId: widget.category.id!,
-                              categoryName: widget.category.name,
-                            ),
-                          ),
-                        );
-                      },
-                      backgroundColor: Colors.purple,
-                      child: const Icon(Icons.list_alt, color: Colors.white),
-                      tooltip: 'Registro de Episodios',
+      floatingActionButton: Builder(
+        builder: (context) {
+          // Determinar el tooltip según el espacio
+          final activeWatchingCount = _series.where((series) => series.status == SeriesStatus.mirando).length;
+          final canAdd = activeWatchingCount < widget.category.numberOfSeries;
+          final tooltip = canAdd 
+              ? 'Agregar Serie' 
+              : 'Límite alcanzado (${widget.category.numberOfSeries}). Puedes editar o finalizar series.';
+
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              FloatingActionButton(
+                heroTag: "episode_log",
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EpisodeLogPage(
+                        categoryId: widget.category.id!,
+                        categoryName: widget.category.name,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    FloatingActionButton(
-                      heroTag: "add_series",
-                      onPressed: _showAddSeriesDialog,
-                      child: const Icon(Icons.add),
-                      tooltip: tooltip,
-                    ),
-                  ],
-                );
-              },
-            )
-          : null,
+                  );
+                },
+                backgroundColor: Colors.purple,
+                child: const Icon(Icons.list_alt, color: Colors.white),
+                tooltip: 'Registro de Episodios',
+              ),
+              const SizedBox(height: 16),
+              FloatingActionButton(
+                heroTag: "add_series",
+                onPressed: canAdd ? _showAddSeriesDialog : null,
+                child: const Icon(Icons.add),
+                tooltip: tooltip,
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
