@@ -78,20 +78,20 @@ class SeriesAnimeCategory {
   // Calcular días de atraso
   int getDaysBehind() {
     final now = DateTime.now();
-    final start = startDate;
-    int daysBehind = 0;
-    
-    // Contar días desde la fecha de inicio hasta hoy
-    DateTime currentDate = start;
-    while (currentDate.isBefore(now)) {
-      // Solo contar días que están seleccionados
-      if (selectedDays.contains(currentDate.weekday)) {
-        daysBehind++;
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime start = DateTime(startDate.year, startDate.month, startDate.day);
+
+    if (start.isAfter(today)) return 0;
+
+    final int totalDays = today.difference(start).inDays; // número de saltos entre fechas
+    int count = 0;
+    for (int i = 0; i <= totalDays; i++) {
+      final d = start.add(Duration(days: i));
+      if (selectedDays.contains(d.weekday)) {
+        count++;
       }
-      currentDate = currentDate.add(const Duration(days: 1));
     }
-    
-    return daysBehind;
+    return count;
   }
 
   // Calcular capítulos de atraso

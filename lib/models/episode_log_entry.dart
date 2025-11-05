@@ -15,6 +15,7 @@ class EpisodeLogEntry {
   final String episodeTitle;
   final EpisodeStatus status;
   final DateTime? watchDate;
+  final int seriesDisplayOrder; // Orden de visualización de la serie
 
   EpisodeLogEntry({
     required this.episodeId,
@@ -27,6 +28,7 @@ class EpisodeLogEntry {
     required this.episodeTitle,
     required this.status,
     this.watchDate,
+    this.seriesDisplayOrder = 0,
   });
 
   String get formattedEpisode {
@@ -86,6 +88,7 @@ class EpisodeLogEntry {
       episodeTitle: episode.title ?? 'Episodio ${episode.episodeNumber}',
       status: episode.status,
       watchDate: episode.watchDate,
+      seriesDisplayOrder: series.displayOrder,
     );
   }
 }

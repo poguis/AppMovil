@@ -28,7 +28,27 @@ class SeriesService {
   // CRUD para Series
   static Future<int> createSeries(Series series) async {
     final db = await DatabaseService.database;
-    return await db.insert(_seriesTable, series.toMap());
+    
+    // Si no se especifica display_order, asignar el siguiente disponible
+    int displayOrder = series.displayOrder;
+    if (displayOrder == 0) {
+      // Obtener el máximo display_order de las series de la misma categoría
+      final result = await db.rawQuery('''
+        SELECT MAX(display_order) as max_order 
+        FROM $_seriesTable 
+        WHERE category_id = ?
+      ''', [series.categoryId]);
+      
+      final maxOrder = result.first['max_order'] as int?;
+      displayOrder = (maxOrder ?? -1) + 1;
+    }
+    
+    // Crear la serie con el display_order correcto
+    final seriesWithOrder = series.copyWith(
+      displayOrder: displayOrder,
+    );
+    
+    return await db.insert(_seriesTable, seriesWithOrder.toMap());
   }
 
   static Future<List<Series>> getSeriesByCategory(int categoryId) async {
@@ -257,6 +277,56 @@ class SeriesService {
 
   static Future<List<Series>> getNewSeries() async {
     return getSeriesByStatus(SeriesStatus.nueva);
+  }
+
+  // Obtener el último episodio visto de una serie
+  static Future<Map<String, int>?> getLastWatchedEpisode(int seriesId) async {
+    try {
+      final seasons = await getSeasonsBySeries(seriesId);
+      if (seasons.isEmpty) return null;
+
+      // Ordenar temporadas por número
+      seasons.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+
+      int? lastSeasonNumber;
+      int? lastEpisodeNumber;
+
+      // Buscar el último episodio visto en todas las temporadas
+      // El último episodio visto es el que tiene la temporada y episodio más alto
+      for (final season in seasons) {
+        final episodes = await getEpisodesBySeason(season.id!);
+        final watchedEpisodes = episodes.where((e) => e.status == EpisodeStatus.visto).toList();
+        
+        if (watchedEpisodes.isNotEmpty) {
+          // Ordenar por número de episodio (descendente para obtener el mayor)
+          watchedEpisodes.sort((a, b) => b.episodeNumber.compareTo(a.episodeNumber));
+          
+          // Obtener el último episodio visto de esta temporada (el de mayor número)
+          final lastEp = watchedEpisodes.first;
+          
+          // Si es la primera temporada con episodios vistos, o si esta temporada es mayor
+          // o si es la misma temporada pero con episodio mayor, actualizar
+          if (lastSeasonNumber == null || 
+              season.seasonNumber > lastSeasonNumber ||
+              (season.seasonNumber == lastSeasonNumber && lastEp.episodeNumber > (lastEpisodeNumber ?? 0))) {
+            lastSeasonNumber = season.seasonNumber;
+            lastEpisodeNumber = lastEp.episodeNumber;
+          }
+        }
+      }
+
+      if (lastSeasonNumber != null && lastEpisodeNumber != null) {
+        return {
+          'season': lastSeasonNumber,
+          'episode': lastEpisodeNumber,
+        };
+      }
+
+      return null;
+    } catch (e) {
+      print('Error obteniendo último episodio visto: $e');
+      return null;
+    }
   }
 
   // Métodos para estadísticas

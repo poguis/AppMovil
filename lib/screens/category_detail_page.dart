@@ -5,6 +5,7 @@ import '../models/series.dart';
 import '../models/season.dart';
 import '../models/episode.dart';
 import '../services/series_service.dart';
+import '../services/series_anime_category_service.dart';
 import '../widgets/series_dialog.dart';
 import '../widgets/season_episode_dialog.dart';
 import 'episode_log_page.dart';
@@ -25,6 +26,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   List<Series> _series = [];
   bool _isLoading = true;
   String _selectedStatus = 'all'; // 'all', 'nueva', 'mirando', 'terminada', 'enEspera', 'historial'
+  Map<String, int>? _delayInfo; // Para almacenar el atraso real calculado
 
   @override
   void initState() {
@@ -39,8 +41,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
     try {
       final series = await SeriesService.getSeriesByCategory(widget.category.id!);
+      // Calcular el atraso real considerando episodios vistos
+      final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(widget.category.id!);
       setState(() {
         _series = series;
+        _delayInfo = delayInfo;
         _isLoading = false;
       });
     } catch (e) {
@@ -55,6 +60,20 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           ),
         );
       }
+    }
+  }
+
+  // Método para recargar solo el atraso (más rápido que recargar todo)
+  Future<void> _refreshDelay() async {
+    try {
+      final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(widget.category.id!);
+      if (mounted) {
+        setState(() {
+          _delayInfo = delayInfo;
+        });
+      }
+    } catch (e) {
+      print('Error actualizando atraso: $e');
     }
   }
 
@@ -166,7 +185,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       builder: (context) => SeasonEpisodeDialog(series: series),
     );
 
-    if (result == true) {
+    // Recargar datos si se cerró el diálogo (puede haber agregado temporadas)
+    if (result == true || result == null) {
       _loadData();
     }
   }
@@ -261,7 +281,40 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
   Future<void> _updateSeriesOrder() async {
     try {
-      await SeriesService.updateSeriesOrder(_filteredSeries);
+      // Obtener todas las series de la categoría (no solo las filtradas)
+      final allSeries = await SeriesService.getSeriesByCategory(widget.category.id!);
+      
+      // Crear un mapa para acceso rápido por ID
+      final Map<int, Series> seriesMap = {};
+      for (final s in allSeries) {
+        if (s.id != null) {
+          seriesMap[s.id!] = s;
+        }
+      }
+      
+      // Crear lista final con el nuevo orden: primero las reordenadas, luego las demás
+      final List<Series> reorderedAllSeries = [];
+      
+      // Agregar las series filtradas en su nuevo orden
+      final Set<int> filteredIds = _filteredSeries.map((s) => s.id!).where((id) => id != null).cast<int>().toSet();
+      for (final filteredSeries in _filteredSeries) {
+        if (filteredSeries.id != null) {
+          reorderedAllSeries.add(seriesMap[filteredSeries.id!]!);
+        }
+      }
+      
+      // Agregar las series que no están en el filtro, manteniendo su orden original relativo
+      for (final series in allSeries) {
+        if (series.id != null && !filteredIds.contains(series.id)) {
+          reorderedAllSeries.add(series);
+        }
+      }
+      
+      // Actualizar el orden de todas las series
+      await SeriesService.updateSeriesOrder(reorderedAllSeries);
+      
+      // Recargar datos para reflejar el nuevo orden
+      _loadData();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -322,30 +375,40 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     return ReorderableListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       itemCount: _filteredSeries.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorder: (oldIndex, newIndex) async {
         setState(() {
           if (oldIndex < newIndex) {
             newIndex -= 1;
           }
           final item = _filteredSeries.removeAt(oldIndex);
           _filteredSeries.insert(newIndex, item);
-          
-          // Actualizar el orden en la base de datos
-          _updateSeriesOrder();
         });
+        
+        // Actualizar el orden en la base de datos (asíncrono, sin await para no bloquear UI)
+        _updateSeriesOrder();
       },
       itemBuilder: (context, index) {
         final series = _filteredSeries[index];
         return Card(
-          key: ValueKey(series.id),
+          key: ValueKey('series_${series.id}'),
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: series.statusColor.withValues(alpha: 0.1),
-              child: Icon(
-                series.statusIcon,
-                color: series.statusColor,
-              ),
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.drag_handle,
+                  color: Colors.grey,
+                ),
+                const SizedBox(width: 8),
+                CircleAvatar(
+                  backgroundColor: series.statusColor.withValues(alpha: 0.1),
+                  child: Icon(
+                    series.statusIcon,
+                    color: series.statusColor,
+                  ),
+                ),
+              ],
             ),
             title: Text(
               series.name,
@@ -438,7 +501,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                 ),
               ],
             ),
-            onTap: () => _showManageSeasonsDialog(series),
+            // Remover onTap para permitir el drag & drop
+            // El usuario puede usar el menú de opciones para gestionar temporadas
           ),
         );
       },
@@ -494,11 +558,23 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                     ),
                     PopupMenuButton<String>(
                       onSelected: (value) async {
-                        if (value == 'delete') {
+                        if (value == 'seasons') {
+                          await _showManageSeasonsDialog(series);
+                        } else if (value == 'delete') {
                           await _deleteSeries(series);
                         }
                       },
                       itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'seasons',
+                          child: Row(
+                            children: [
+                              Icon(Icons.list),
+                              SizedBox(width: 8),
+                              Text('Gestionar Temporadas'),
+                            ],
+                          ),
+                        ),
                         const PopupMenuItem(
                           value: 'delete',
                           child: Row(
@@ -541,10 +617,23 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       Row(
                         children: [
                           Expanded(
-                            child: _buildHistoryInfoItem(
-                              'Progreso Final',
-                              'Temporada ${series.currentSeason}, Capítulo ${series.currentEpisode}',
-                              Icons.flag,
+                            child: FutureBuilder<Map<String, int>?>(
+                              future: SeriesService.getLastWatchedEpisode(series.id!),
+                              builder: (context, snapshot) {
+                                String progressText;
+                                if (snapshot.hasData && snapshot.data != null) {
+                                  final lastWatched = snapshot.data!;
+                                  progressText = 'Temporada ${lastWatched['season']}, Capítulo ${lastWatched['episode']}';
+                                } else {
+                                  // Si no hay episodios vistos, usar el progreso actual
+                                  progressText = 'Temporada ${series.currentSeason}, Capítulo ${series.currentEpisode}';
+                                }
+                                return _buildHistoryInfoItem(
+                                  'Progreso Final',
+                                  progressText,
+                                  Icons.flag,
+                                );
+                              },
                             ),
                           ),
                           const SizedBox(width: 16),
@@ -661,14 +750,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: _buildInfoCard(
-                    'Atrasado',
-                    widget.category.getDaysBehind() > 0 
-                        ? '${widget.category.getDaysBehind()} días\n${widget.category.getChaptersBehind()} capítulos'
-                        : 'Al día',
-                    Icons.warning,
-                    widget.category.getDaysBehind() > 0 ? Colors.red : Colors.green,
-                  ),
+                  child: _buildDelayInfoCard(),
                 ),
               ],
             ),
@@ -692,6 +774,50 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           const SizedBox(height: 4),
           Text(
             title,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDelayInfoCard() {
+    final daysBehind = _delayInfo?['daysBehind'] ?? 0;
+    final chaptersBehind = _delayInfo?['chaptersBehind'] ?? 0;
+    final hasDelay = daysBehind > 0 || chaptersBehind > 0;
+    final color = hasDelay ? Colors.red : Colors.green;
+    
+    final value = hasDelay 
+        ? '$daysBehind ${daysBehind == 1 ? 'día' : 'días'}\n$chaptersBehind ${chaptersBehind == 1 ? 'capítulo' : 'capítulos'}'
+        : 'Al día';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.warning, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(
+            'Atrasado',
             style: TextStyle(
               fontSize: 12,
               color: color,
@@ -806,8 +932,9 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
             children: [
               FloatingActionButton(
                 heroTag: "episode_log",
-                onPressed: () {
-                  Navigator.push(
+                onPressed: () async {
+                  // Navegar a la página de registro de episodios y esperar a que regrese
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => EpisodeLogPage(
@@ -816,6 +943,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       ),
                     ),
                   );
+                  // Cuando regresa, actualizar el atraso
+                  _refreshDelay();
                 },
                 backgroundColor: Colors.purple,
                 child: const Icon(Icons.list_alt, color: Colors.white),

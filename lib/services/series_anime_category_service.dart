@@ -1,5 +1,8 @@
 import '../models/series_anime_category.dart';
+import '../models/series.dart';
+import '../models/episode.dart';
 import 'database_service.dart';
+import 'series_service.dart';
 
 class SeriesAnimeCategoryService {
   static const String _tableName = 'series_anime_categories';
@@ -105,6 +108,53 @@ class SeriesAnimeCategoryService {
       'video': video,
       'lectura': lectura,
     };
+  }
+
+  /// Calcular el atraso real considerando los episodios vistos
+  /// Retorna: {'daysBehind': int, 'chaptersBehind': int}
+  static Future<Map<String, int>> calculateRealDelay(int categoryId) async {
+    try {
+      final category = await getCategoryById(categoryId);
+      if (category == null) return {'daysBehind': 0, 'chaptersBehind': 0};
+
+      // Calcular días válidos desde el inicio (solo días seleccionados)
+      final validDays = category.getDaysBehind();
+      
+      // Calcular capítulos esperados según la configuración
+      // (días válidos * frecuencia de capítulos por día)
+      final expectedChapters = validDays * category.frequency;
+
+      // Obtener TODAS las series de esta categoría (incluyendo terminadas y en espera)
+      final allSeries = await SeriesService.getSeriesByCategory(categoryId);
+      
+      // Contar capítulos realmente vistos de TODAS las series (mirando, terminadas, en espera)
+      // Los episodios vistos siempre cuentan, independientemente del estado de la serie
+      int watchedChapters = 0;
+      for (final series in allSeries) {
+        final seasons = await SeriesService.getSeasonsBySeries(series.id!);
+        for (final season in seasons) {
+          final episodes = await SeriesService.getEpisodesBySeason(season.id!);
+          watchedChapters += episodes.where((e) => e.status == EpisodeStatus.visto).length;
+        }
+      }
+
+      // Calcular atraso real: capítulos esperados - capítulos vistos
+      final chaptersBehind = expectedChapters - watchedChapters;
+      
+      // Calcular días de atraso basado en capítulos de atraso
+      // Si hay atraso, calcular cuántos días representan según la frecuencia
+      final actualDaysBehind = chaptersBehind > 0 
+          ? (chaptersBehind / category.frequency).ceil() 
+          : 0;
+
+      return {
+        'daysBehind': actualDaysBehind > 0 ? actualDaysBehind : 0,
+        'chaptersBehind': chaptersBehind > 0 ? chaptersBehind : 0,
+      };
+    } catch (e) {
+      print('Error calculando atraso real: $e');
+      return {'daysBehind': 0, 'chaptersBehind': 0};
+    }
   }
 }
 

@@ -99,6 +99,22 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
           episodes.add(episode);
         }
 
+        // Si la serie está terminada o en espera, cambiar automáticamente a "Mirando"
+        bool statusChanged = false;
+        if (widget.series.status == SeriesStatus.terminada || 
+            widget.series.status == SeriesStatus.enEspera) {
+          final updatedSeries = widget.series.copyWith(
+            status: SeriesStatus.mirando,
+            startWatchingDate: widget.series.startWatchingDate ?? DateTime.now(),
+            finishWatchingDate: null, // Limpiar fecha de finalización
+            currentSeason: season.seasonNumber,
+            currentEpisode: 1,
+            updatedAt: DateTime.now(),
+          );
+          await SeriesService.updateSeries(updatedSeries);
+          statusChanged = true;
+        }
+
         setState(() {
           _seasons.add(season.copyWith(id: seasonId));
           _episodesBySeason[seasonId] = episodes;
@@ -106,11 +122,20 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Temporada agregada exitosamente'),
+            SnackBar(
+              content: Text(
+                statusChanged 
+                  ? 'Temporada agregada. La serie ahora está en estado "Mirando"'
+                  : 'Temporada agregada exitosamente'
+              ),
               backgroundColor: Colors.green,
             ),
           );
+          
+          // Si cambió el estado, cerrar el diálogo para refrescar la vista
+          if (statusChanged) {
+            Navigator.of(context).pop(true); // Retornar true para indicar que se actualizó
+          }
         }
       } catch (e) {
         if (mounted) {

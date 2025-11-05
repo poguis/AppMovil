@@ -22,15 +22,16 @@ class EpisodeLogService {
           s.name as series_name,
           s.current_season,
           s.current_episode,
+          s.display_order,
           sn.season_number,
           sac.name as category_name
         FROM episodes e
         INNER JOIN seasons sn ON e.season_id = sn.id
         INNER JOIN series s ON sn.series_id = s.id
         INNER JOIN series_anime_categories sac ON s.category_id = sac.id
-        WHERE s.category_id = ? AND s.status = ?
+        WHERE s.category_id = ?
         ORDER BY s.display_order ASC, sn.season_number ASC, e.episode_number ASC
-      ''', [categoryId, SeriesStatus.mirando.name]);
+      ''', [categoryId]);
 
       final episodes = List.generate(maps.length, (i) {
         return EpisodeLogEntry(
@@ -49,22 +50,78 @@ class EpisodeLogService {
           watchDate: maps[i]['watch_date'] != null
               ? DateTime.parse(maps[i]['watch_date'] as String)
               : null,
+          seriesDisplayOrder: maps[i]['display_order'] as int? ?? 0,
         );
       });
 
-      // Alternar episodios automáticamente
-      return _alternateEpisodes(episodes);
+      // NO intercalar aquí - dejar que la UI lo haga después de filtrar
+      // Esto permite que el orden round-robin sea dinámico basado en los episodios disponibles
+      return episodes;
     } catch (e) {
       print('Error obteniendo episodios de la categoría: $e');
       return [];
     }
   }
 
-  // Marcar episodio como visto/no visto
-  static Future<void> toggleEpisodeWatchedStatus(int episodeId, bool isWatched) async {
+  // Verificar si un episodio es el último de la serie (después de marcarlo como visto)
+  static Future<bool> isLastEpisodeOfSeries(int episodeId) async {
     try {
       final episode = await SeriesService.getEpisodeById(episodeId);
-      if (episode == null) return;
+      if (episode == null || episode.status != EpisodeStatus.visto) return false;
+
+      final season = await SeriesService.getSeasonById(episode.seasonId);
+      if (season == null) return false;
+
+      final series = await SeriesService.getSeriesById(season.seriesId);
+      if (series == null) return false;
+
+      // Obtener todas las temporadas de la serie ordenadas
+      final seasons = await SeriesService.getSeasonsBySeries(series.id!);
+      if (seasons.isEmpty) return false;
+
+      seasons.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+
+      // Obtener la última temporada
+      final lastSeason = seasons.last;
+
+      // Verificar si el episodio es de la última temporada
+      if (season.id != lastSeason.id) return false;
+
+      // Obtener todos los episodios de la última temporada
+      final episodes = await SeriesService.getEpisodesBySeason(lastSeason.id!);
+      if (episodes.isEmpty) return false;
+
+      // Ordenar por número de episodio
+      episodes.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+
+      // Verificar si este es el último episodio
+      final lastEpisode = episodes.last;
+      if (episode.id != lastEpisode.id) return false;
+
+      // Verificar si todos los episodios de la serie están vistos
+      for (final s in seasons) {
+        final seasonEpisodes = await SeriesService.getEpisodesBySeason(s.id!);
+        for (final e in seasonEpisodes) {
+          // Si hay algún episodio no visto, no es el último
+          if (e.status != EpisodeStatus.visto) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    } catch (e) {
+      print('Error verificando si es último episodio: $e');
+      return false;
+    }
+  }
+
+  // Marcar episodio como visto/no visto
+  // Retorna: {'isLastEpisode': bool, 'seriesId': int?} si es el último episodio
+  static Future<Map<String, dynamic>> toggleEpisodeWatchedStatus(int episodeId, bool isWatched) async {
+    try {
+      final episode = await SeriesService.getEpisodeById(episodeId);
+      if (episode == null) return {'isLastEpisode': false, 'seriesId': null};
 
       final newStatus = isWatched ? EpisodeStatus.visto : EpisodeStatus.noVisto;
       final newWatchDate = isWatched ? DateTime.now() : null;
@@ -81,17 +138,32 @@ class EpisodeLogService {
 
       // Actualizar el progreso de la serie (currentSeason, currentEpisode)
       final season = await SeriesService.getSeasonById(episode.seasonId);
+      int? seriesId;
+      bool isLastEpisode = false;
+
       if (season != null) {
         final series = await SeriesService.getSeriesById(season.seriesId);
         if (series != null) {
+          seriesId = series.id;
+          
           // Si el episodio marcado es el siguiente en la secuencia, avanzar la serie
           if (isWatched &&
               episode.seasonId == series.currentSeason &&
               episode.episodeNumber == series.currentEpisode) {
             await SeriesService.advanceToNextEpisode(series.id!);
           }
+
+          // Verificar si es el último episodio de la serie
+          if (isWatched) {
+            isLastEpisode = await isLastEpisodeOfSeries(episodeId);
+          }
         }
       }
+
+      return {
+        'isLastEpisode': isLastEpisode,
+        'seriesId': seriesId,
+      };
     } catch (e) {
       print('Error actualizando estado del episodio: $e');
       throw e;
@@ -237,26 +309,62 @@ class EpisodeLogService {
     }
   }
 
-  // Alternar episodios automáticamente entre series
+  // Alternar episodios automáticamente entre series respetando display_order
   static List<EpisodeLogEntry> _alternateEpisodes(List<EpisodeLogEntry> episodes) {
     if (episodes.isEmpty) return episodes;
 
-    // Agrupar episodios por serie
-    final Map<String, List<EpisodeLogEntry>> seriesGroups = {};
+    // Agrupar episodios por serie ID (más seguro que por nombre)
+    final Map<int, List<EpisodeLogEntry>> seriesGroups = {};
+    final Map<int, int> seriesOrderMap = {}; // Para preservar el orden
+    final Map<int, String> seriesNameMap = {}; // Para preservar el nombre
+    
     for (final episode in episodes) {
-      if (!seriesGroups.containsKey(episode.seriesName)) {
-        seriesGroups[episode.seriesName] = [];
+      final seriesId = episode.seriesId;
+      if (!seriesGroups.containsKey(seriesId)) {
+        seriesGroups[seriesId] = [];
+        seriesOrderMap[seriesId] = episode.seriesDisplayOrder;
+        seriesNameMap[seriesId] = episode.seriesName;
       }
-      seriesGroups[episode.seriesName]!.add(episode);
+      seriesGroups[seriesId]!.add(episode);
     }
 
-    // Obtener listas de episodios por serie
-    final List<List<EpisodeLogEntry>> seriesLists = seriesGroups.values.toList();
+    // Ordenar las series por display_order (y luego por ID si hay empate)
+    final sortedSeriesIds = seriesGroups.keys.toList()
+      ..sort((a, b) {
+        final orderA = seriesOrderMap[a] ?? 0;
+        final orderB = seriesOrderMap[b] ?? 0;
+        if (orderA != orderB) {
+          return orderA.compareTo(orderB);
+        }
+        return a.compareTo(b); // Si hay empate, usar ID
+      });
     
-    // Alternar episodios
+    // Obtener listas de episodios por serie en el orden correcto
+    // Asegurarse de que cada lista esté ordenada por temporada y episodio
+    final List<List<EpisodeLogEntry>> seriesLists = sortedSeriesIds.map((seriesId) {
+      final list = List<EpisodeLogEntry>.from(seriesGroups[seriesId]!);
+      list.sort((a, b) {
+        final seasonCmp = a.seasonNumber.compareTo(b.seasonNumber);
+        if (seasonCmp != 0) return seasonCmp;
+        return a.episodeNumber.compareTo(b.episodeNumber);
+      });
+      return list;
+    }).toList();
+    
+    // Alternar episodios: un capítulo de cada serie en orden, luego el siguiente de cada serie, etc.
     final List<EpisodeLogEntry> alternatedEpisodes = [];
-    int maxLength = seriesLists.map((list) => list.length).reduce((a, b) => a > b ? a : b);
     
+    if (seriesLists.isEmpty) return episodes;
+    
+    // Encontrar la longitud máxima
+    int maxLength = 0;
+    for (final list in seriesLists) {
+      if (list.length > maxLength) {
+        maxLength = list.length;
+      }
+    }
+    
+    // Intercalar episodios
     for (int i = 0; i < maxLength; i++) {
       for (final seriesList in seriesLists) {
         if (i < seriesList.length) {

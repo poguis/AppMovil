@@ -15,15 +15,53 @@ class SeriesAnimePage extends StatefulWidget {
   State<SeriesAnimePage> createState() => _SeriesAnimePageState();
 }
 
-class _SeriesAnimePageState extends State<SeriesAnimePage> {
+class _SeriesAnimePageState extends State<SeriesAnimePage> with WidgetsBindingObserver {
   List<SeriesAnimeCategory> _categories = [];
+  Map<int, Map<String, int>> _delayInfoMap = {}; // Mapa de categoryId -> delayInfo
   bool _isLoading = true;
   String _selectedType = 'all'; // 'all', 'video', 'lectura'
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Cuando la app vuelve al primer plano, actualizar el atraso
+      _refreshDelayInfo();
+    }
+  }
+
+  // Método para actualizar solo el atraso de todas las categorías
+  Future<void> _refreshDelayInfo() async {
+    if (_categories.isEmpty) return;
+    
+    try {
+      final delayInfoMap = <int, Map<String, int>>{};
+      for (final category in _categories) {
+        if (category.id != null) {
+          final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(category.id!);
+          delayInfoMap[category.id!] = delayInfo;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _delayInfoMap = delayInfoMap;
+        });
+      }
+    } catch (e) {
+      print('Error actualizando información de atraso: $e');
+    }
   }
 
   Future<void> _loadData() async {
@@ -33,8 +71,19 @@ class _SeriesAnimePageState extends State<SeriesAnimePage> {
 
     try {
       final categories = await SeriesAnimeCategoryService.getAllCategories();
+      
+      // Calcular el atraso real para cada categoría
+      final delayInfoMap = <int, Map<String, int>>{};
+      for (final category in categories) {
+        if (category.id != null) {
+          final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(category.id!);
+          delayInfoMap[category.id!] = delayInfo;
+        }
+      }
+      
       setState(() {
         _categories = categories;
+        _delayInfoMap = delayInfoMap;
         _isLoading = false;
       });
     } catch (e) {
@@ -55,8 +104,19 @@ class _SeriesAnimePageState extends State<SeriesAnimePage> {
   Future<void> _loadCategories() async {
     try {
       final categories = await SeriesAnimeCategoryService.getAllCategories();
+      
+      // Recalcular el atraso real para cada categoría
+      final delayInfoMap = <int, Map<String, int>>{};
+      for (final category in categories) {
+        if (category.id != null) {
+          final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(category.id!);
+          delayInfoMap[category.id!] = delayInfo;
+        }
+      }
+      
       setState(() {
         _categories = categories;
+        _delayInfoMap = delayInfoMap;
       });
     } catch (e) {
       if (mounted) {
@@ -271,32 +331,24 @@ class _SeriesAnimePageState extends State<SeriesAnimePage> {
                   style: const TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: category.getDaysBehind() > 0 ? Colors.red.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    category.getDaysBehind() > 0 
-                        ? 'Atraso: ${category.getDaysBehind()} días (${category.getChaptersBehind()} capítulos)'
-                        : category.getStatusMessage(),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: category.getDaysBehind() > 0 ? Colors.red : Colors.blue,
-                    ),
-                  ),
-                ),
+                _buildDelayInfo(category),
               ],
             ),
-            onTap: () {
-              Navigator.push(
+            onTap: () async {
+              // Navegar a la página de detalle y esperar a que regrese
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => CategoryDetailPage(category: category),
                 ),
               );
+              // Actualizar el atraso cuando regrese
+              if (category.id != null && mounted) {
+                final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(category.id!);
+                setState(() {
+                  _delayInfoMap[category.id!] = delayInfo;
+                });
+              }
             },
             trailing: PopupMenuButton<String>(
               onSelected: (value) {
@@ -335,6 +387,31 @@ class _SeriesAnimePageState extends State<SeriesAnimePage> {
     );
   }
 
+  Widget _buildDelayInfo(SeriesAnimeCategory category) {
+    // Obtener el atraso real calculado o usar el método antiguo como fallback
+    final delayInfo = category.id != null ? _delayInfoMap[category.id!] : null;
+    final daysBehind = delayInfo?['daysBehind'] ?? category.getDaysBehind();
+    final chaptersBehind = delayInfo?['chaptersBehind'] ?? category.getChaptersBehind();
+    final hasDelay = daysBehind > 0 || chaptersBehind > 0;
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: hasDelay ? Colors.red.withValues(alpha: 0.1) : Colors.blue.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        hasDelay
+            ? 'Atraso: $daysBehind ${daysBehind == 1 ? 'día' : 'días'} ($chaptersBehind ${chaptersBehind == 1 ? 'capítulo' : 'capítulos'})'
+            : category.getStatusMessage(),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: hasDelay ? Colors.red : Colors.blue,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
