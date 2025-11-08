@@ -7,9 +7,27 @@ import 'series_anime_category_service.dart';
 
 class EpisodeLogService {
   // Obtener todos los episodios de una categoría específica
+  // Solo retorna episodios PENDIENTES desde el punto actual de cada serie
   static Future<List<EpisodeLogEntry>> getEpisodesByCategory(int categoryId) async {
     try {
       final db = await DatabaseService.database;
+      // Obtener tipo de categoría para decidir el orden
+      final category = await SeriesAnimeCategoryService.getCategoryById(categoryId);
+      final isReading = category?.type == 'lectura';
+      
+      // Primero obtener todas las series de la categoría para conocer sus puntos actuales
+      final allSeries = await SeriesService.getSeriesByCategory(categoryId);
+      final seriesCurrentPoints = <int, Map<String, int>>{}; // seriesId -> {season, episode}
+      
+      for (final series in allSeries) {
+        if (series.id != null && series.status != SeriesStatus.terminada) {
+          seriesCurrentPoints[series.id!] = {
+            'season': series.currentSeason,
+            'episode': series.currentEpisode,
+          };
+        }
+      }
+      
       final List<Map<String, dynamic>> maps = await db.rawQuery('''
         SELECT
           e.id as episode_id,
@@ -23,40 +41,78 @@ class EpisodeLogService {
           s.current_season,
           s.current_episode,
           s.display_order,
+          s.status as series_status,
           sn.season_number,
           sac.name as category_name
         FROM episodes e
         INNER JOIN seasons sn ON e.season_id = sn.id
         INNER JOIN series s ON sn.series_id = s.id
         INNER JOIN series_anime_categories sac ON s.category_id = sac.id
-        WHERE s.category_id = ?
+        WHERE s.category_id = ? AND s.status != 'terminada'
         ORDER BY s.display_order ASC, sn.season_number ASC, e.episode_number ASC
       ''', [categoryId]);
 
-      final episodes = List.generate(maps.length, (i) {
-        return EpisodeLogEntry(
-          episodeId: maps[i]['episode_id'] as int,
-          seasonId: maps[i]['season_id'] as int,
-          seriesId: maps[i]['series_id'] as int,
-          seriesName: maps[i]['series_name'] as String,
-          categoryName: maps[i]['category_name'] as String,
-          seasonNumber: maps[i]['season_number'] as int,
-          episodeNumber: maps[i]['episode_number'] as int,
-          episodeTitle: maps[i]['episode_title'] as String,
-          status: EpisodeStatus.values.firstWhere(
-            (eStatus) => eStatus.name == maps[i]['episode_status'],
-            orElse: () => EpisodeStatus.noVisto,
-          ),
-          watchDate: maps[i]['watch_date'] != null
-              ? DateTime.parse(maps[i]['watch_date'] as String)
-              : null,
-          seriesDisplayOrder: maps[i]['display_order'] as int? ?? 0,
+      // Filtrar solo episodios pendientes desde el punto actual de cada serie
+      final pendingEpisodes = <EpisodeLogEntry>[];
+      
+      for (final map in maps) {
+        final seriesId = map['series_id'] as int;
+        final seriesStatus = map['series_status'] as String;
+        final seasonNumber = map['season_number'] as int;
+        final episodeNumber = map['episode_number'] as int;
+        final episodeStatus = EpisodeStatus.values.firstWhere(
+          (eStatus) => eStatus.name == map['episode_status'],
+          orElse: () => EpisodeStatus.noVisto,
         );
-      });
+        
+        // Excluir series terminadas
+        if (seriesStatus == 'terminada') {
+          continue;
+        }
+        
+        // Obtener el punto actual de esta serie
+        final currentPoint = seriesCurrentPoints[seriesId];
+        if (currentPoint == null) continue;
+        
+        final currentSeason = currentPoint['season']!;
+        final currentEpisode = currentPoint['episode']!;
+        
+        // Solo incluir episodios desde el punto actual en adelante (vistos y pendientes)
+        // Los episodios anteriores al punto actual NO se incluyen en el registro
+        bool shouldInclude = false;
+        
+        if (seasonNumber > currentSeason) {
+          // Temporada futura - incluir todos (vistos y pendientes)
+          shouldInclude = true;
+        } else if (seasonNumber == currentSeason && episodeNumber >= currentEpisode) {
+          // Misma temporada, desde el capítulo actual en adelante - incluir todos
+          shouldInclude = true;
+        }
+        // Si es temporada o capítulo anterior, no incluir (ya pasó, no aparece en el registro)
+        
+        if (shouldInclude) {
+          pendingEpisodes.add(EpisodeLogEntry(
+            episodeId: map['episode_id'] as int,
+            seasonId: map['season_id'] as int,
+            seriesId: seriesId,
+            seriesName: map['series_name'] as String,
+            categoryName: map['category_name'] as String,
+            seasonNumber: seasonNumber,
+            episodeNumber: episodeNumber,
+            episodeTitle: map['episode_title'] as String,
+            status: episodeStatus,
+            watchDate: map['watch_date'] != null
+                ? DateTime.parse(map['watch_date'] as String)
+                : null,
+            seriesDisplayOrder: map['display_order'] as int? ?? 0,
+          ));
+        }
+      }
 
-      // NO intercalar aquí - dejar que la UI lo haga después de filtrar
-      // Esto permite que el orden round-robin sea dinámico basado en los episodios disponibles
-      return episodes;
+      // Alternar según tipo: video por episodios; lectura por tomos
+      return isReading
+          ? _alternateByVolumes(pendingEpisodes)
+          : _alternateEpisodes(pendingEpisodes);
     } catch (e) {
       print('Error obteniendo episodios de la categoría: $e');
       return [];
@@ -136,7 +192,7 @@ class EpisodeLogService {
       // Actualizar el contador de episodios vistos en la temporada
       await SeriesService.updateSeasonWatchedCount(episode.seasonId);
 
-      // Actualizar el progreso de la serie (currentSeason, currentEpisode)
+      // Actualizar el progreso de la serie (sin avanzar automáticamente el punto actual aquí)
       final season = await SeriesService.getSeasonById(episode.seasonId);
       int? seriesId;
       bool isLastEpisode = false;
@@ -146,12 +202,9 @@ class EpisodeLogService {
         if (series != null) {
           seriesId = series.id;
           
-          // Si el episodio marcado es el siguiente en la secuencia, avanzar la serie
-          if (isWatched &&
-              episode.seasonId == series.currentSeason &&
-              episode.episodeNumber == series.currentEpisode) {
-            await SeriesService.advanceToNextEpisode(series.id!);
-          }
+          // NOTA: No avanzamos automáticamente el currentSeason/currentEpisode aquí.
+          // Esto permite que el primer episodio marcado como visto permanezca
+          // incluido en los conteos/estadísticas del registro y atraso.
 
           // Verificar si es el último episodio de la serie
           if (isWatched) {
@@ -174,8 +227,19 @@ class EpisodeLogService {
   static Future<Map<String, int>> getEpisodeStatistics(int categoryId) async {
     try {
       final allEpisodes = await getEpisodesByCategory(categoryId);
-      final total = allEpisodes.length;
-      final watched = allEpisodes.where((e) => e.status == EpisodeStatus.visto).length;
+      
+      // Obtener todas las series de la categoría para identificar cuáles están terminadas
+      final allSeries = await SeriesService.getSeriesByCategory(categoryId);
+      final finishedSeriesIds = allSeries
+          .where((s) => s.status == SeriesStatus.terminada)
+          .map((s) => s.id!)
+          .toSet();
+      
+      // Filtrar episodios: excluir los de series terminadas del conteo de pendientes
+      final activeEpisodes = allEpisodes.where((e) => !finishedSeriesIds.contains(e.seriesId)).toList();
+      
+      final total = activeEpisodes.length;
+      final watched = activeEpisodes.where((e) => e.status == EpisodeStatus.visto).length;
       final pending = total - watched;
 
       return {
@@ -374,5 +438,70 @@ class EpisodeLogService {
     }
 
     return alternatedEpisodes;
+  }
+
+  // Intercalar por tomos (lectura): mostrar todos los capítulos de un tomo, luego
+  // pasar al siguiente tomo de la siguiente serie respetando display_order.
+  static List<EpisodeLogEntry> _alternateByVolumes(List<EpisodeLogEntry> episodes) {
+    if (episodes.isEmpty) return episodes;
+
+    // Agrupar por serie
+    final Map<int, List<EpisodeLogEntry>> seriesGroups = {};
+    final Map<int, int> seriesOrderMap = {};
+    for (final e in episodes) {
+      if (!seriesGroups.containsKey(e.seriesId)) {
+        seriesGroups[e.seriesId] = [];
+        seriesOrderMap[e.seriesId] = e.seriesDisplayOrder;
+      }
+      seriesGroups[e.seriesId]!.add(e);
+    }
+
+    // Ordenar cada serie por (seasonNumber asc, episodeNumber asc)
+    for (final list in seriesGroups.values) {
+      list.sort((a, b) {
+        final s = a.seasonNumber.compareTo(b.seasonNumber);
+        if (s != 0) return s;
+        return a.episodeNumber.compareTo(b.episodeNumber);
+      });
+    }
+
+    // Para cada serie, agrupar a su vez por seasonNumber conservando el orden
+    final Map<int, List<List<EpisodeLogEntry>>> seriesToVolumes = {};
+    for (final entry in seriesGroups.entries) {
+      final Map<int, List<EpisodeLogEntry>> bySeason = {};
+      for (final ep in entry.value) {
+        bySeason.putIfAbsent(ep.seasonNumber, () => []).add(ep);
+      }
+      final volumeLists = bySeason.keys.toList()
+        ..sort();
+      seriesToVolumes[entry.key] = volumeLists.map((sn) => bySeason[sn]!).toList();
+    }
+
+    // Orden de series por display_order, luego ID
+    final sortedSeriesIds = seriesToVolumes.keys.toList()
+      ..sort((a, b) {
+        final oa = seriesOrderMap[a] ?? 0;
+        final ob = seriesOrderMap[b] ?? 0;
+        if (oa != ob) return oa.compareTo(ob);
+        return a.compareTo(b);
+      });
+
+    // Round-robin por volumen (tomo): de cada serie, tomar la lista completa de capítulos del siguiente tomo
+    final List<EpisodeLogEntry> result = [];
+    int round = 0;
+    while (true) {
+      bool addedInThisRound = false;
+      for (final seriesId in sortedSeriesIds) {
+        final volumes = seriesToVolumes[seriesId]!;
+        if (round < volumes.length) {
+          result.addAll(volumes[round]);
+          addedInThisRound = true;
+        }
+      }
+      if (!addedInThisRound) break;
+      round++;
+    }
+
+    return result;
   }
 }

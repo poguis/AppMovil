@@ -4,6 +4,7 @@ import '../models/series.dart';
 import '../models/season.dart';
 import '../models/episode.dart';
 import '../services/series_service.dart';
+import '../services/series_anime_category_service.dart';
 
 class SeasonEpisodeDialog extends StatefulWidget {
   final Series series;
@@ -21,6 +22,7 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
   List<Season> _seasons = [];
   Map<int, List<Episode>> _episodesBySeason = {};
   bool _isLoading = true;
+  String? _categoryType; // 'video' o 'lectura'
 
   @override
   void initState() {
@@ -34,6 +36,10 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
     });
 
     try {
+      // Obtener el tipo de categoría
+      final category = await SeriesAnimeCategoryService.getCategoryById(widget.series.categoryId);
+      final categoryType = category?.type;
+
       final seasons = await SeriesService.getSeasonsBySeries(widget.series.id!);
       final episodesBySeason = <int, List<Episode>>{};
 
@@ -43,6 +49,7 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
       }
 
       setState(() {
+        _categoryType = categoryType;
         _seasons = seasons;
         _episodesBySeason = episodesBySeason;
         _isLoading = false;
@@ -67,6 +74,7 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
       context: context,
       builder: (context) => _SeasonCreationDialog(
         nextSeasonNumber: _seasons.isEmpty ? 1 : _seasons.last.seasonNumber + 1,
+        categoryType: _categoryType,
       ),
     );
 
@@ -120,13 +128,18 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
           _episodesBySeason[seasonId] = episodes;
         });
 
+        final isReading = _categoryType == 'lectura';
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
                 statusChanged 
-                  ? 'Temporada agregada. La serie ahora está en estado "Mirando"'
-                  : 'Temporada agregada exitosamente'
+                  ? (isReading 
+                      ? 'Tomo agregado. El manga/libro ahora está en estado "Mirando"'
+                      : 'Temporada agregada. La serie ahora está en estado "Mirando"')
+                  : (isReading 
+                      ? 'Tomo agregado exitosamente'
+                      : 'Temporada agregada exitosamente')
               ),
               backgroundColor: Colors.green,
             ),
@@ -429,14 +442,14 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
             ),
             const SizedBox(height: 16),
             
-            // Botón para agregar temporada
+            // Botón para agregar temporada/tomo
             Row(
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _addSeason,
                     icon: const Icon(Icons.add),
-                    label: const Text('Agregar Temporada'),
+                    label: Text(_categoryType == 'lectura' ? 'Agregar Tomo' : 'Agregar Temporada'),
                   ),
                 ),
               ],
@@ -448,11 +461,13 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _seasons.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            'No hay temporadas registradas\nAgrega una temporada para comenzar',
+                            _categoryType == 'lectura'
+                                ? 'No hay tomos registrados\nAgrega un tomo para comenzar'
+                                : 'No hay temporadas registradas\nAgrega una temporada para comenzar',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
+                            style: const TextStyle(color: Colors.grey),
                           ),
                         )
                       : ListView.builder(
@@ -471,8 +486,12 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
 
 class _SeasonCreationDialog extends StatefulWidget {
   final int nextSeasonNumber;
+  final String? categoryType;
 
-  const _SeasonCreationDialog({required this.nextSeasonNumber});
+  const _SeasonCreationDialog({
+    required this.nextSeasonNumber,
+    this.categoryType,
+  });
 
   @override
   State<_SeasonCreationDialog> createState() => _SeasonCreationDialogState();
@@ -486,7 +505,10 @@ class _SeasonCreationDialogState extends State<_SeasonCreationDialog> {
   @override
   void initState() {
     super.initState();
-    _titleController.text = 'Temporada ${widget.nextSeasonNumber}';
+    final isReading = widget.categoryType == 'lectura';
+    _titleController.text = isReading 
+        ? 'Tomo ${widget.nextSeasonNumber}' 
+        : 'Temporada ${widget.nextSeasonNumber}';
     _episodesController.text = '12';
   }
 
@@ -509,8 +531,9 @@ class _SeasonCreationDialogState extends State<_SeasonCreationDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isReading = widget.categoryType == 'lectura';
     return AlertDialog(
-      title: const Text('Nueva Temporada'),
+      title: Text(isReading ? 'Nuevo Tomo' : 'Nueva Temporada'),
       content: Form(
         key: _formKey,
         child: Column(
@@ -518,9 +541,9 @@ class _SeasonCreationDialogState extends State<_SeasonCreationDialog> {
           children: [
             TextFormField(
               controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Título de la temporada',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: isReading ? 'Título del tomo' : 'Título de la temporada',
+                border: const OutlineInputBorder(),
               ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
@@ -532,9 +555,9 @@ class _SeasonCreationDialogState extends State<_SeasonCreationDialog> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _episodesController,
-              decoration: const InputDecoration(
-                labelText: 'Número de capítulos',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: isReading ? 'Número de capítulos del tomo' : 'Número de capítulos',
+                border: const OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
               validator: (value) {

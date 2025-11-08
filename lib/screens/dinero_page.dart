@@ -22,6 +22,7 @@ class _DineroPageState extends State<DineroPage> {
   DateTime? _endDate;
   List<Map<String, dynamic>> _filteredTransactions = [];
   List<Map<String, dynamic>> _groupedTransactions = [];
+  List<Map<String, dynamic>> _transactionsWithHeaders = []; // Lista con encabezados de fecha
 
   @override
   void initState() {
@@ -35,7 +36,8 @@ class _DineroPageState extends State<DineroPage> {
 
     final money = await MoneyService.getCurrentMoney(currentUser.id!);
     final hasMoney = await MoneyService.hasMoneyRegistered(currentUser.id!);
-    final transactions = await TransactionService.getTransactionsWithCategory(currentUser.id!, limit: 10);
+    // Obtener todas las transacciones sin límite para poder mostrar todos los días
+    final transactions = await TransactionService.getTransactionsWithCategory(currentUser.id!);
     
     setState(() {
       _currentMoney = money;
@@ -116,7 +118,7 @@ class _DineroPageState extends State<DineroPage> {
           
           // Recargar el dinero actual y las transacciones
                 final newMoney = await MoneyService.getCurrentMoney(currentUser.id!);
-                final newTransactions = await TransactionService.getTransactionsWithCategory(currentUser.id!, limit: 10);
+                final newTransactions = await TransactionService.getTransactionsWithCategory(currentUser.id!);
                 setState(() {
                   _currentMoney = newMoney;
                   _transactions = newTransactions;
@@ -213,6 +215,92 @@ class _DineroPageState extends State<DineroPage> {
     });
 
     _groupedTransactions = list;
+    
+    // Crear lista con encabezados de fecha
+    _buildTransactionsWithHeaders();
+  }
+
+  void _buildTransactionsWithHeaders() {
+    if (_filteredTransactions.isEmpty) {
+      _transactionsWithHeaders = [];
+      return;
+    }
+
+    // Obtener todas las fechas únicas de las transacciones
+    final Set<DateTime> uniqueDates = {};
+    for (final t in _filteredTransactions) {
+      final DateTime dt = DateTime.parse(t['date'] as String);
+      uniqueDates.add(DateTime(dt.year, dt.month, dt.day));
+    }
+
+    // Obtener el rango de fechas (desde la más antigua hasta la más reciente)
+    final sortedDates = uniqueDates.toList()..sort((a, b) => b.compareTo(a)); // Orden descendente
+    DateTime? firstDate = sortedDates.isEmpty ? null : sortedDates.last;
+    DateTime? lastDate = sortedDates.isEmpty ? null : sortedDates.first;
+
+    // Si hay filtro de fecha, usar ese rango
+    if (_startDate != null) {
+      final start = DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
+      if (firstDate == null || start.isBefore(firstDate)) {
+        firstDate = start;
+      }
+    }
+    if (_endDate != null) {
+      final end = DateTime(_endDate!.year, _endDate!.month, _endDate!.day);
+      if (lastDate == null || end.isAfter(lastDate)) {
+        lastDate = end;
+      }
+    }
+
+    if (firstDate == null || lastDate == null) {
+      _transactionsWithHeaders = [];
+      return;
+    }
+
+    // Crear lista de días desde la más reciente hasta la más antigua
+    final List<Map<String, dynamic>> result = [];
+    DateTime currentDate = lastDate;
+
+    // Nombres de los días en español
+    const dayNames = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const monthNames = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+    while (!currentDate.isBefore(firstDate)) {
+      final dayKey = '${currentDate.year}-${currentDate.month.toString().padLeft(2, '0')}-${currentDate.day.toString().padLeft(2, '0')}';
+      
+      // Buscar transacciones de este día
+      final dayTransactions = _groupedTransactions.where((group) {
+        final groupDay = group['day'] as DateTime;
+        final groupDayKey = '${groupDay.year}-${groupDay.month.toString().padLeft(2, '0')}-${groupDay.day.toString().padLeft(2, '0')}';
+        return groupDayKey == dayKey;
+      }).toList();
+
+      // Formatear fecha manualmente para asegurar capitalización correcta
+      final dayName = dayNames[currentDate.weekday];
+      final monthName = monthNames[currentDate.month];
+      final formattedDate = '$dayName, ${currentDate.day.toString().padLeft(2, '0')} de $monthName de ${currentDate.year}';
+
+      // Agregar encabezado de fecha
+      result.add({
+        'type': 'header',
+        'date': currentDate,
+        'formattedDate': formattedDate,
+      });
+
+      // Agregar transacciones de este día
+      for (final group in dayTransactions) {
+        result.add({
+          'type': 'transaction_group',
+          'data': group,
+        });
+      }
+
+      // Ir al día anterior
+      currentDate = currentDate.subtract(const Duration(days: 1));
+    }
+
+    _transactionsWithHeaders = result;
   }
 
   Future<void> _selectDateRange() async {
@@ -480,7 +568,7 @@ class _DineroPageState extends State<DineroPage> {
                         ],
                         const SizedBox(height: 16),
                         Expanded(
-                          child: _groupedTransactions.isEmpty
+                          child: _transactionsWithHeaders.isEmpty
                               ? const Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -502,9 +590,27 @@ class _DineroPageState extends State<DineroPage> {
                                   ),
                                 )
                               : ListView.builder(
-                                  itemCount: _groupedTransactions.length,
+                                  itemCount: _transactionsWithHeaders.length,
                                   itemBuilder: (context, index) {
-                                    final group = _groupedTransactions[index];
+                                    final item = _transactionsWithHeaders[index];
+                                    
+                                    // Si es un encabezado de fecha
+                                    if (item['type'] == 'header') {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 16, bottom: 8, left: 4, right: 4),
+                                        child: Text(
+                                          item['formattedDate'] as String,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: Theme.of(context).colorScheme.primary,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                    
+                                    // Si es un grupo de transacciones
+                                    final group = item['data'] as Map<String, dynamic>;
                                     final bool isIncome = group['type'] == 'income';
                                     final double total = (group['total'] as num).toDouble();
                                     final String categoryName = group['category_name'] as String;

@@ -402,7 +402,9 @@ class _SeriesAnimePageState extends State<SeriesAnimePage> with WidgetsBindingOb
       ),
       child: Text(
         hasDelay
-            ? 'Atraso: $daysBehind ${daysBehind == 1 ? 'día' : 'días'} ($chaptersBehind ${chaptersBehind == 1 ? 'capítulo' : 'capítulos'})'
+            ? (category.type == 'lectura'
+                ? 'Atraso: $daysBehind ${daysBehind == 1 ? 'día' : 'días'} ($chaptersBehind ${chaptersBehind == 1 ? 'tomo' : 'tomos'})'
+                : 'Atraso: $daysBehind ${daysBehind == 1 ? 'día' : 'días'} ($chaptersBehind ${chaptersBehind == 1 ? 'capítulo' : 'capítulos'})')
             : category.getStatusMessage(),
         style: TextStyle(
           fontSize: 12,

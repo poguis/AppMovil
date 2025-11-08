@@ -3,7 +3,7 @@ import '../services/auth_service.dart';
 import 'login_page.dart';
 import 'dinero_page.dart';
 import 'series_anime_page.dart';
-import 'peliculas_page.dart';
+import 'pendiente_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -104,19 +104,19 @@ class HomePage extends StatelessWidget {
             
             const SizedBox(height: 16),
             
-            // Botón de Películas
+            // Botón de Pendiente
             ElevatedButton(
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const PeliculasPage()),
+                  MaterialPageRoute(builder: (context) => const PendientePage()),
                 );
               },
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
                 textStyle: const TextStyle(fontSize: 18),
               ),
-              child: const Text('Películas'),
+              child: const Text('Pendiente'),
             ),
           ],
         ),

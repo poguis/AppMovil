@@ -82,6 +82,40 @@ class SeriesService {
 
   static Future<int> updateSeries(Series series) async {
     final db = await DatabaseService.database;
+    
+    // Obtener la serie anterior para comparar estados
+    final previousSeries = await getSeriesById(series.id!);
+    
+    // Si la serie cambió a "Terminada", marcar todos los episodios como vistos
+    if (previousSeries != null && 
+        previousSeries.status != SeriesStatus.terminada && 
+        series.status == SeriesStatus.terminada) {
+      
+      // Obtener todas las temporadas de la serie
+      final seasons = await getSeasonsBySeries(series.id!);
+      
+      // Marcar todos los episodios como vistos
+      for (final season in seasons) {
+        final episodes = await getEpisodesBySeason(season.id!);
+        
+        for (final episode in episodes) {
+          // Solo actualizar si no está ya visto
+          if (episode.status != EpisodeStatus.visto) {
+            final updatedEpisode = episode.copyWith(
+              status: EpisodeStatus.visto,
+              watchProgress: 1.0,
+              watchDate: DateTime.now(),
+              updatedAt: DateTime.now(),
+            );
+            await updateEpisode(updatedEpisode);
+          }
+        }
+        
+        // Actualizar el contador de capítulos vistos en la temporada
+        await updateSeasonWatchedCount(season.id!);
+      }
+    }
+    
     return await db.update(
       _seriesTable,
       series.toMap(),
@@ -536,8 +570,12 @@ class SeriesService {
         // Determinar estado del episodio
         EpisodeStatus episodeStatus = EpisodeStatus.noVisto;
         
+        // Si es estado "Terminada", marcar TODOS los capítulos como vistos automáticamente
+        if (status == SeriesStatus.terminada) {
+          episodeStatus = EpisodeStatus.visto;
+        }
         // Si es estado "mirando", marcar como vistos los capítulos anteriores al punto actual
-        if (status == SeriesStatus.mirando && startSeason != null && startEpisode != null) {
+        else if (status == SeriesStatus.mirando && startSeason != null && startEpisode != null) {
           final seasonNum = seasonData['seasonNumber'];
           final episodeNum = i;
           
@@ -547,6 +585,20 @@ class SeriesService {
           }
         }
         
+        // Definir watchDate: 
+        // - Terminada: todos con fecha (se cuentan para registro)
+        // - Mirando y episodios anteriores al punto de inicio: marcados vistos pero sin fecha (no cuentan)
+        DateTime? episodeWatchDate;
+        if (status == SeriesStatus.terminada) {
+          episodeWatchDate = now;
+        } else if (status == SeriesStatus.mirando && startSeason != null && startEpisode != null) {
+          final seasonNum = seasonData['seasonNumber'];
+          final episodeNum = i;
+          if (seasonNum is int && (seasonNum < startSeason || (seasonNum == startSeason && episodeNum < startEpisode))) {
+            episodeWatchDate = null; // visto histórico, no cuenta para registro
+          }
+        }
+
         final episode = Episode(
           seasonId: seasonId,
           episodeNumber: i,
@@ -554,14 +606,18 @@ class SeriesService {
           createdAt: now,
           updatedAt: now,
           status: episodeStatus,
-          watchDate: episodeStatus == EpisodeStatus.visto ? now : null,
+          watchProgress: episodeStatus == EpisodeStatus.visto ? 1.0 : null,
+          watchDate: episodeStatus == EpisodeStatus.visto ? episodeWatchDate : null,
         );
 
         await createEpisode(episode);
       }
       
       // Actualizar contador de capítulos vistos para la temporada
-      if (status == SeriesStatus.mirando && startSeason != null) {
+      if (status == SeriesStatus.terminada) {
+        // Si la serie está terminada, todos los capítulos están vistos
+        await updateSeasonWatchedCount(seasonId);
+      } else if (status == SeriesStatus.mirando && startSeason != null) {
         int watchedCount = 0;
         final seasonNumber = seasonData['seasonNumber'];
         
@@ -583,5 +639,114 @@ class SeriesService {
     }
 
     return series.copyWith(id: seriesId);
+  }
+
+  // Actualizar serie con sus temporadas y episodios
+  static Future<void> updateSeriesWithSeasons(Series series, List<Map<String, dynamic>> seasonsData) async {
+    // Primero actualizar la serie
+    await updateSeries(series);
+
+    // Obtener temporadas existentes
+    final existingSeasons = await getSeasonsBySeries(series.id!);
+    final existingSeasonsMap = <int, Season>{};
+    for (final season in existingSeasons) {
+      if (season.id != null) {
+        existingSeasonsMap[season.id!] = season;
+      }
+    }
+
+    // Procesar cada temporada en los datos nuevos
+    for (final seasonData in seasonsData) {
+      final seasonId = seasonData['id'] as int?;
+      final seasonNumber = seasonData['seasonNumber'] as int;
+      final title = seasonData['title'] as String?;
+      final totalEpisodes = seasonData['totalEpisodes'] as int;
+
+      if (seasonId != null && existingSeasonsMap.containsKey(seasonId)) {
+        // Temporada existente - actualizar
+        final existingSeason = existingSeasonsMap[seasonId]!;
+        
+        // Actualizar información básica de la temporada
+        final updatedSeason = existingSeason.copyWith(
+          title: title,
+          totalEpisodes: totalEpisodes,
+          updatedAt: DateTime.now(),
+        );
+        await updateSeason(updatedSeason);
+
+        // Obtener episodios existentes de esta temporada
+        final existingEpisodes = await getEpisodesBySeason(seasonId);
+        final currentEpisodeCount = existingEpisodes.length;
+
+        if (totalEpisodes > currentEpisodeCount) {
+          // Aumentó el número de capítulos - crear los nuevos
+          final now = DateTime.now();
+          for (int i = currentEpisodeCount + 1; i <= totalEpisodes; i++) {
+            final newEpisode = Episode(
+              seasonId: seasonId,
+              episodeNumber: i,
+              title: 'Capítulo $i',
+              createdAt: now,
+              updatedAt: now,
+              status: EpisodeStatus.noVisto,
+            );
+            await createEpisode(newEpisode);
+          }
+        } else if (totalEpisodes < currentEpisodeCount) {
+          // Disminuyó el número de capítulos - eliminar los que exceden
+          // Ordenar por número de episodio descendente para eliminar los últimos
+          existingEpisodes.sort((a, b) => b.episodeNumber.compareTo(a.episodeNumber));
+          
+          for (int i = 0; i < (currentEpisodeCount - totalEpisodes); i++) {
+            if (existingEpisodes[i].id != null) {
+              await deleteEpisode(existingEpisodes[i].id!);
+            }
+          }
+        }
+
+        // Actualizar contador de capítulos vistos
+        await updateSeasonWatchedCount(seasonId);
+      } else {
+        // Nueva temporada - crear
+        final now = DateTime.now();
+        final newSeason = Season(
+          seriesId: series.id!,
+          seasonNumber: seasonNumber,
+          title: title,
+          totalEpisodes: totalEpisodes,
+          watchedEpisodes: 0,
+          createdAt: now,
+          updatedAt: now,
+        );
+        
+        final newSeasonId = await createSeason(newSeason);
+
+        // Crear todos los episodios de la nueva temporada
+        for (int i = 1; i <= totalEpisodes; i++) {
+          final episode = Episode(
+            seasonId: newSeasonId,
+            episodeNumber: i,
+            title: 'Capítulo $i',
+            createdAt: now,
+            updatedAt: now,
+            status: EpisodeStatus.noVisto,
+          );
+          await createEpisode(episode);
+        }
+      }
+    }
+
+    // Eliminar temporadas que ya no están en la lista
+    final newSeasonIds = seasonsData
+        .where((s) => s['id'] != null)
+        .map((s) => s['id'] as int)
+        .toSet();
+    
+    for (final existingSeason in existingSeasons) {
+      if (existingSeason.id != null && !newSeasonIds.contains(existingSeason.id)) {
+        // Esta temporada ya no está en la lista - eliminarla (cascade eliminará los episodios)
+        await deleteSeason(existingSeason.id!);
+      }
+    }
   }
 }

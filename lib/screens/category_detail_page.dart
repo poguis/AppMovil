@@ -93,6 +93,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         categoryId: widget.category.id!,
         maxSeries: widget.category.numberOfSeries,
         allowedStatuses: allowedStatuses, // Todos los estados o solo En Espera y Terminado según el espacio
+        categoryType: widget.category.type, // Pasar el tipo de categoría
       ),
     );
 
@@ -145,18 +146,32 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   }
 
   Future<void> _showEditSeriesDialog(Series series) async {
-    final result = await showDialog<Series>(
+    final result = await showDialog<dynamic>(
       context: context,
       builder: (context) => SeriesDialog(
         categoryId: widget.category.id!,
         maxSeries: widget.category.numberOfSeries,
         series: series,
+        categoryType: widget.category.type, // Pasar el tipo de categoría
       ),
     );
 
     if (result != null) {
       try {
-        await SeriesService.updateSeries(result);
+        final isEditing = series != null;
+        
+        // Si es edición y hay temporadas modificadas
+        if (isEditing && result is Map<String, dynamic> && result['hasSeasonsData'] == true) {
+          final updatedSeries = result['series'] as Series;
+          final seasonsData = result['seasonsData'] as List<Map<String, dynamic>>;
+          
+          // Actualizar la serie y las temporadas
+          await SeriesService.updateSeriesWithSeasons(updatedSeries, seasonsData);
+        } else {
+          // Actualizar solo la serie
+          await SeriesService.updateSeries(result is Map ? result['series'] as Series : result as Series);
+        }
+        
         _loadData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -430,7 +445,9 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Progreso: ${series.currentProgress}',
+                  widget.category.type == 'lectura'
+                      ? 'Progreso: Tomo ${series.currentSeason}, Capítulo ${series.currentEpisode}'
+                      : 'Progreso: ${series.currentProgress}',
                   style: const TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 4),
@@ -468,13 +485,15 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                     ],
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'seasons',
                   child: Row(
                     children: [
-                      Icon(Icons.list),
-                      SizedBox(width: 8),
-                      Text('Gestionar Temporadas'),
+                      const Icon(Icons.list),
+                      const SizedBox(width: 8),
+                      Text(widget.category.type == 'lectura' 
+                          ? 'Gestionar Tomos' 
+                          : 'Gestionar Temporadas'),
                     ],
                   ),
                 ),
@@ -565,13 +584,15 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                         }
                       },
                       itemBuilder: (context) => [
-                        const PopupMenuItem(
+                        PopupMenuItem(
                           value: 'seasons',
                           child: Row(
                             children: [
-                              Icon(Icons.list),
-                              SizedBox(width: 8),
-                              Text('Gestionar Temporadas'),
+                              const Icon(Icons.list),
+                              const SizedBox(width: 8),
+                              Text(widget.category.type == 'lectura' 
+                                  ? 'Gestionar Tomos' 
+                                  : 'Gestionar Temporadas'),
                             ],
                           ),
                         ),
@@ -623,10 +644,18 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                 String progressText;
                                 if (snapshot.hasData && snapshot.data != null) {
                                   final lastWatched = snapshot.data!;
-                                  progressText = 'Temporada ${lastWatched['season']}, Capítulo ${lastWatched['episode']}';
+                                  if (widget.category.type == 'lectura') {
+                                    progressText = 'Tomo ${lastWatched['season']}, Capítulo ${lastWatched['episode']}';
+                                  } else {
+                                    progressText = 'Temporada ${lastWatched['season']}, Capítulo ${lastWatched['episode']}';
+                                  }
                                 } else {
                                   // Si no hay episodios vistos, usar el progreso actual
-                                  progressText = 'Temporada ${series.currentSeason}, Capítulo ${series.currentEpisode}';
+                                  if (widget.category.type == 'lectura') {
+                                    progressText = 'Tomo ${series.currentSeason}, Capítulo ${series.currentEpisode}';
+                                  } else {
+                                    progressText = 'Temporada ${series.currentSeason}, Capítulo ${series.currentEpisode}';
+                                  }
                                 }
                                 return _buildHistoryInfoItem(
                                   'Progreso Final',
@@ -801,8 +830,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     final hasDelay = daysBehind > 0 || chaptersBehind > 0;
     final color = hasDelay ? Colors.red : Colors.green;
     
+    final isReading = widget.category.type == 'lectura';
     final value = hasDelay 
-        ? '$daysBehind ${daysBehind == 1 ? 'día' : 'días'}\n$chaptersBehind ${chaptersBehind == 1 ? 'capítulo' : 'capítulos'}'
+        ? (isReading
+            ? '$daysBehind ${daysBehind == 1 ? 'día' : 'días'}\n$chaptersBehind ${chaptersBehind == 1 ? 'tomo' : 'tomos'}'
+            : '$daysBehind ${daysBehind == 1 ? 'día' : 'días'}\n$chaptersBehind ${chaptersBehind == 1 ? 'capítulo' : 'capítulos'}')
         : 'Al día';
 
     return Container(
@@ -816,15 +848,15 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         children: [
           Icon(Icons.warning, color: color, size: 20),
           const SizedBox(height: 4),
-          Text(
-            'Atrasado',
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.bold,
+            Text(
+              widget.category.type == 'lectura' ? 'Atraso' : 'Atrasado',
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
             ),
-            textAlign: TextAlign.center,
-          ),
           const SizedBox(height: 2),
           Text(
             value,

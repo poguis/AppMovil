@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/episode_log_entry.dart';
 import '../services/episode_log_service.dart';
 import '../services/series_service.dart';
+import '../services/series_anime_category_service.dart';
 import '../models/series.dart';
 import '../models/episode.dart';
 
@@ -26,6 +27,8 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
   bool _isLoading = true;
   String _selectedFilter = 'pending'; // 'all', 'pending', 'watched'
   bool _isEditMode = false;
+  String? _categoryType; // 'video' o 'lectura'
+  int? _lastServedSeriesId; // serie que acaba de consumir un capítulo/tomo
 
   @override
   void initState() {
@@ -39,11 +42,22 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
     });
 
     try {
+      // Obtener tipo de categoría para decidir intercalado
+      final category = await SeriesAnimeCategoryService.getCategoryById(widget.categoryId);
+      _categoryType = category?.type;
       final episodes = await EpisodeLogService.getEpisodesByCategory(widget.categoryId);
       setState(() {
         _allEpisodes = episodes;
         // Intercalar TODOS los episodios una sola vez (vistos + pendientes)
-        _allEpisodesIntercalated = _intercalateEpisodes(episodes);
+        _allEpisodesIntercalated = (_categoryType == 'lectura')
+            ? _intercalateByVolumes(episodes)
+            : _intercalateEpisodes(episodes);
+        // En Lectura NO rotamos: se debe completar el tomo antes de pasar a la siguiente serie.
+        // Solo aplicamos la rotación round-robin en Video.
+        final shouldRotate = _categoryType != 'lectura';
+        if (shouldRotate && _lastServedSeriesId != null && _allEpisodesIntercalated.isNotEmpty) {
+          _allEpisodesIntercalated = _rotateStartByNextSeries(_allEpisodesIntercalated, _lastServedSeriesId!);
+        }
         _applyFilter();
         _isLoading = false;
       });
@@ -148,8 +162,73 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
     return intercalatedEpisodes;
   }
 
+  // Intercalar por tomos (lectura): todos los capítulos de un tomo, luego el siguiente tomo de la siguiente serie
+  List<EpisodeLogEntry> _intercalateByVolumes(List<EpisodeLogEntry> episodes) {
+    if (episodes.isEmpty) return episodes;
+
+    // Agrupar por serie
+    final Map<int, List<EpisodeLogEntry>> seriesGroups = {};
+    final Map<int, int> seriesOrderMap = {};
+    for (final e in episodes) {
+      if (!seriesGroups.containsKey(e.seriesId)) {
+        seriesGroups[e.seriesId] = [];
+        seriesOrderMap[e.seriesId] = e.seriesDisplayOrder;
+      }
+      seriesGroups[e.seriesId]!.add(e);
+    }
+
+    // Ordenar por temporada y capítulo dentro de cada serie
+    for (final list in seriesGroups.values) {
+      list.sort((a, b) {
+        final s = a.seasonNumber.compareTo(b.seasonNumber);
+        if (s != 0) return s;
+        return a.episodeNumber.compareTo(b.episodeNumber);
+      });
+    }
+
+    // Agrupar por temporada (tomo) y preservar orden
+    final Map<int, List<List<EpisodeLogEntry>>> seriesToVolumes = {};
+    for (final entry in seriesGroups.entries) {
+      final Map<int, List<EpisodeLogEntry>> bySeason = {};
+      for (final ep in entry.value) {
+        bySeason.putIfAbsent(ep.seasonNumber, () => []).add(ep);
+      }
+      final seasonNums = bySeason.keys.toList()..sort();
+      seriesToVolumes[entry.key] = seasonNums.map((sn) => bySeason[sn]!).toList();
+    }
+
+    // Ordenar series por display_order, luego ID
+    final sortedSeriesIds = seriesToVolumes.keys.toList()
+      ..sort((a, b) {
+        final oa = seriesOrderMap[a] ?? 0;
+        final ob = seriesOrderMap[b] ?? 0;
+        if (oa != ob) return oa.compareTo(ob);
+        return a.compareTo(b);
+      });
+
+    // Round-robin por tomo
+    final List<EpisodeLogEntry> result = [];
+    int round = 0;
+    while (true) {
+      bool added = false;
+      for (final seriesId in sortedSeriesIds) {
+        final vols = seriesToVolumes[seriesId]!;
+        if (round < vols.length) {
+          result.addAll(vols[round]);
+          added = true;
+        }
+      }
+      if (!added) break;
+      round++;
+    }
+
+    return result;
+  }
+
   Future<void> _toggleWatchedStatus(EpisodeLogEntry entry) async {
     try {
+      // Recordar la serie que acaba de consumirse
+      _lastServedSeriesId = entry.seriesId;
       final result = await EpisodeLogService.toggleEpisodeWatchedStatus(
         entry.episodeId, 
         entry.status != EpisodeStatus.visto
@@ -183,6 +262,27 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
         );
       }
     }
+  }
+
+  // Rotar la lista para que comience con la serie siguiente a lastServedSeriesId
+  List<EpisodeLogEntry> _rotateStartByNextSeries(List<EpisodeLogEntry> list, int lastSeriesId) {
+    if (list.isEmpty) return list;
+
+    // Obtener orden de series según la aparición en lista (ya respeta display_order)
+    final orderedSeries = <int>[];
+    for (final e in list) {
+      if (!orderedSeries.contains(e.seriesId)) orderedSeries.add(e.seriesId);
+    }
+    final idx = orderedSeries.indexOf(lastSeriesId);
+    if (idx == -1) return list;
+    final nextSeriesId = orderedSeries[(idx + 1) % orderedSeries.length];
+
+    // Buscar primer índice en la lista que pertenezca a esa serie
+    final startIndex = list.indexWhere((e) => e.seriesId == nextSeriesId);
+    if (startIndex <= 0) return list; // ya comienza con la serie deseada o no encontrada
+
+    // Rotar manteniendo el orden relativo
+    return [...list.sublist(startIndex), ...list.sublist(0, startIndex)];
   }
 
   Future<void> _showSeriesCompletionDialog(int seriesId) async {

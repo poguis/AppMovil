@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/series.dart';
+import '../services/series_service.dart';
 
 class SeriesDialog extends StatefulWidget {
   final int categoryId;
   final int maxSeries;
   final Series? series;
   final List<SeriesStatus>? allowedStatuses; // Estados permitidos para esta serie
+  final String? categoryType; // 'video' o 'lectura'
 
   const SeriesDialog({
     super.key,
@@ -14,6 +16,7 @@ class SeriesDialog extends StatefulWidget {
     required this.maxSeries,
     this.series,
     this.allowedStatuses,
+    this.categoryType,
   });
 
   @override
@@ -39,7 +42,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
     super.initState();
     if (widget.series != null) {
       _initializeWithSeries(widget.series!);
-      // En edición, la gestión de temporadas es opcional
+      // En edición, cargar temporadas existentes
+      _loadExistingSeasons();
+      // En edición, permitir editar temporadas
       _isCreatingSeasons = false;
     } else if (widget.allowedStatuses != null && widget.allowedStatuses!.isNotEmpty) {
       // Si hay estados permitidos pero no es edición, seleccionar el primero disponible
@@ -63,6 +68,30 @@ class _SeriesDialogState extends State<SeriesDialog> {
     _currentEpisode = series.currentEpisode;
     _startWatchingDate = series.startWatchingDate;
     _finishWatchingDate = series.finishWatchingDate;
+  }
+
+  Future<void> _loadExistingSeasons() async {
+    if (widget.series == null || widget.series!.id == null) return;
+    
+    final isReading = widget.categoryType == 'lectura';
+    try {
+      final seasons = await SeriesService.getSeasonsBySeries(widget.series!.id!);
+      setState(() {
+        _seasonsData = seasons.map((season) {
+          final defaultTitle = isReading 
+              ? 'Tomo ${season.seasonNumber}' 
+              : 'Temporada ${season.seasonNumber}';
+          return {
+            'id': season.id,
+            'seasonNumber': season.seasonNumber,
+            'title': season.title ?? defaultTitle,
+            'totalEpisodes': season.totalEpisodes,
+          };
+        }).toList();
+      });
+    } catch (e) {
+      print('Error cargando temporadas: $e');
+    }
   }
 
   @override
@@ -103,22 +132,28 @@ class _SeriesDialogState extends State<SeriesDialog> {
   }
 
   void _addSeason() {
+    final isReading = widget.categoryType == 'lectura';
     setState(() {
       _seasonsData.add({
         'seasonNumber': _seasonsData.length + 1,
-        'title': 'Temporada ${_seasonsData.length + 1}',
+        'title': isReading 
+            ? 'Tomo ${_seasonsData.length + 1}' 
+            : 'Temporada ${_seasonsData.length + 1}',
         'totalEpisodes': 12,
       });
     });
   }
 
   void _removeSeason(int index) {
+    final isReading = widget.categoryType == 'lectura';
     setState(() {
       _seasonsData.removeAt(index);
-      // Renumerar temporadas
+      // Renumerar temporadas/tomos
       for (int i = 0; i < _seasonsData.length; i++) {
         _seasonsData[i]['seasonNumber'] = i + 1;
-        _seasonsData[i]['title'] = 'Temporada ${i + 1}';
+        _seasonsData[i]['title'] = isReading 
+            ? 'Tomo ${i + 1}' 
+            : 'Temporada ${i + 1}';
       }
     });
   }
@@ -220,8 +255,15 @@ class _SeriesDialogState extends State<SeriesDialog> {
       }
     }
 
-    // Crear la serie con temporadas y episodios si es necesario (solo creación)
-    if (needsSeasonsData) {
+    // Si es edición y hay temporadas modificadas, incluir información de temporadas
+    if (isEditing && _isCreatingSeasons && _seasonsData.isNotEmpty) {
+      Navigator.of(context).pop({
+        'series': _createSeries(),
+        'seasonsData': _seasonsData,
+        'hasSeasonsData': true,
+      });
+    } else if (needsSeasonsData) {
+      // Crear la serie con temporadas y episodios si es necesario (solo creación)
       Navigator.of(context).pop({
         'series': _createSeries(),
         'seasonsData': _seasonsData,
@@ -285,6 +327,13 @@ class _SeriesDialogState extends State<SeriesDialog> {
       return const SizedBox.shrink();
     }
 
+    final isReading = widget.categoryType == 'lectura';
+    final seasonLabel = isReading ? 'Tomo actual' : 'Temporada actual';
+    final chapterLabel = isReading ? 'Capítulo actual' : 'Capítulo actual';
+    final helperText = isReading
+        ? 'Indica en qué capítulo de qué tomo te quedaste leyendo'
+        : 'Indica en qué capítulo de qué temporada te quedaste viendo';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -298,9 +347,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
             Expanded(
               child: TextFormField(
                 initialValue: _currentSeason.toString(),
-                decoration: const InputDecoration(
-                  labelText: 'Temporada actual',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: seasonLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
                 onChanged: (value) {
@@ -308,11 +357,11 @@ class _SeriesDialogState extends State<SeriesDialog> {
                 },
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Ingresa la temporada actual';
+                    return 'Ingresa el ${isReading ? "tomo" : "temporada"} actual';
                   }
                   final season = int.tryParse(value);
                   if (season == null || season < 1) {
-                    return 'La temporada debe ser mayor a 0';
+                    return 'El ${isReading ? "tomo" : "temporada"} debe ser mayor a 0';
                   }
                   return null;
                 },
@@ -322,9 +371,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
             Expanded(
               child: TextFormField(
                 initialValue: _currentEpisode.toString(),
-                decoration: const InputDecoration(
-                  labelText: 'Capítulo actual',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: chapterLabel,
+                  border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
                 onChanged: (value) {
@@ -346,7 +395,7 @@ class _SeriesDialogState extends State<SeriesDialog> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Indica en qué capítulo de qué temporada te quedaste viendo',
+          helperText,
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey[600],
@@ -399,6 +448,10 @@ class _SeriesDialogState extends State<SeriesDialog> {
   }
 
   Widget _buildSeasonsSection() {
+    final isReading = widget.categoryType == 'lectura';
+    final seasonTerm = isReading ? 'Tomos' : 'Temporadas';
+    final chapterTerm = isReading ? 'capítulos del tomo' : 'capítulos';
+    
     // Para nueva, mirando, terminada y enEspera la creación de temporadas es obligatoria
     final isEditing = widget.series != null;
     final needsSeasonsData = !isEditing && (
@@ -408,7 +461,14 @@ class _SeriesDialogState extends State<SeriesDialog> {
       _selectedStatus == SeriesStatus.enEspera
     );
     
-    // Activar automáticamente si es necesario
+    // En edición, si hay temporadas cargadas, activar automáticamente
+    if (isEditing && _seasonsData.isNotEmpty && !_isCreatingSeasons) {
+      setState(() {
+        _isCreatingSeasons = true;
+      });
+    }
+    
+    // Activar automáticamente si es necesario (creación)
     if (needsSeasonsData && !_isCreatingSeasons) {
       setState(() {
         _isCreatingSeasons = true;
@@ -423,9 +483,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
       children: [
         Row(
           children: [
-            const Text(
-              'Temporadas y capítulos',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Text(
+              '$seasonTerm y capítulos',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             if (!needsSeasonsData) ...[
               const Spacer(),
@@ -479,9 +539,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
                         Expanded(
                           child: TextFormField(
                             initialValue: season['title'],
-                            decoration: const InputDecoration(
-                              labelText: 'Título de la temporada',
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              labelText: isReading ? 'Título del tomo' : 'Título de la temporada',
+                              border: const OutlineInputBorder(),
                             ),
                             onChanged: (value) => _updateSeason(index, 'title', value),
                           ),
@@ -489,13 +549,29 @@ class _SeriesDialogState extends State<SeriesDialog> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: TextFormField(
+                            key: ValueKey('episodes_${season['id']}_${season['totalEpisodes']}'),
                             initialValue: season['totalEpisodes'].toString(),
-                            decoration: const InputDecoration(
-                              labelText: 'Total de capítulos',
-                              border: OutlineInputBorder(),
+                            decoration: InputDecoration(
+                              labelText: isReading ? 'Total de capítulos del tomo' : 'Total de capítulos',
+                              border: const OutlineInputBorder(),
                             ),
                             keyboardType: TextInputType.number,
-                            onChanged: (value) => _updateSeason(index, 'totalEpisodes', int.tryParse(value) ?? 12),
+                            onChanged: (value) {
+                              final newValue = int.tryParse(value) ?? season['totalEpisodes'] as int;
+                              if (newValue > 0) {
+                                _updateSeason(index, 'totalEpisodes', newValue);
+                              }
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Requerido';
+                              }
+                              final episodes = int.tryParse(value);
+                              if (episodes == null || episodes < 1) {
+                                return 'Debe ser > 0';
+                              }
+                              return null;
+                            },
                           ),
                         ),
                         IconButton(
@@ -513,7 +589,7 @@ class _SeriesDialogState extends State<SeriesDialog> {
           ElevatedButton.icon(
             onPressed: _addSeason,
             icon: const Icon(Icons.add),
-            label: const Text('Agregar Temporada'),
+            label: Text(isReading ? 'Agregar Tomo' : 'Agregar Temporada'),
           ),
         ],
       ],
@@ -521,15 +597,19 @@ class _SeriesDialogState extends State<SeriesDialog> {
   }
 
   String _getSeasonsDescription() {
+    final isReading = widget.categoryType == 'lectura';
+    final seasonTerm = isReading ? 'tomos' : 'temporadas';
+    final seasonTermSingular = isReading ? 'tomo' : 'temporada';
+    
     switch (_selectedStatus) {
       case SeriesStatus.nueva:
-        return 'Define todas las temporadas de la serie. Empezará desde la temporada 1, capítulo 1.';
+        return 'Define todos los $seasonTerm del ${isReading ? "manga/libro" : "serie"}. Empezará desde el $seasonTermSingular 1, capítulo 1.';
       case SeriesStatus.mirando:
-        return 'Define todas las temporadas de la serie y después indica tu progreso actual arriba.';
+        return 'Define todos los $seasonTerm del ${isReading ? "manga/libro" : "serie"} y después indica tu progreso actual arriba.';
       case SeriesStatus.terminada:
-        return 'Define todas las temporadas de la serie terminada.';
+        return 'Define todos los $seasonTerm del ${isReading ? "manga/libro" : "serie"} terminado.';
       case SeriesStatus.enEspera:
-        return 'Define todas las temporadas de la serie en espera.';
+        return 'Define todos los $seasonTerm del ${isReading ? "manga/libro" : "serie"} en espera.';
       default:
         return '';
     }
@@ -545,7 +625,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
         child: Column(
           children: [
             Text(
-              widget.series == null ? 'Agregar Nueva Serie' : 'Editar Serie',
+              widget.series == null 
+                  ? (widget.categoryType == 'lectura' ? 'Agregar Nuevo Manga/Libro' : 'Agregar Nueva Serie')
+                  : (widget.categoryType == 'lectura' ? 'Editar Manga/Libro' : 'Editar Serie'),
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -562,14 +644,20 @@ class _SeriesDialogState extends State<SeriesDialog> {
                       // Nombre de la serie
                       TextFormField(
                         controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Nombre de la serie',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.movie),
+                        decoration: InputDecoration(
+                          labelText: widget.categoryType == 'lectura' 
+                              ? 'Nombre del manga/libro' 
+                              : 'Nombre de la serie',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: Icon(widget.categoryType == 'lectura' 
+                              ? Icons.menu_book 
+                              : Icons.movie),
                         ),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
-                            return 'El nombre de la serie es obligatorio';
+                            return widget.categoryType == 'lectura'
+                                ? 'El nombre del manga/libro es obligatorio'
+                                : 'El nombre de la serie es obligatorio';
                           }
                           return null;
                         },
@@ -620,7 +708,9 @@ class _SeriesDialogState extends State<SeriesDialog> {
                 const SizedBox(width: 16),
                 ElevatedButton(
                   onPressed: _submit,
-                  child: Text(widget.series == null ? 'Crear Serie' : 'Actualizar Serie'),
+                  child: Text(widget.series == null 
+                      ? (widget.categoryType == 'lectura' ? 'Crear Manga/Libro' : 'Crear Serie')
+                      : (widget.categoryType == 'lectura' ? 'Actualizar Manga/Libro' : 'Actualizar Serie')),
                 ),
               ],
             ),

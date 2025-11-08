@@ -194,14 +194,18 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
               ),
               const SizedBox(height: 16),
 
-              // Campo de frecuencia
+              // Campo de frecuencia (diferente para video vs lectura)
               TextFormField(
                 controller: _frequencyController,
-                decoration: const InputDecoration(
-                  labelText: 'Frecuencia (capítulos por día)',
-                  hintText: 'Ej: 2',
-                  border: OutlineInputBorder(),
-                  helperText: 'Número de capítulos que verás por día',
+                decoration: InputDecoration(
+                  labelText: _selectedType == 'lectura' 
+                      ? 'Frecuencia (días por tomo)' 
+                      : 'Frecuencia (capítulos por día)',
+                  hintText: _selectedType == 'lectura' ? 'Ej: -3' : 'Ej: 2',
+                  border: const OutlineInputBorder(),
+                  helperText: _selectedType == 'lectura'
+                      ? 'Número de días para leer un tomo (usa valor negativo, ej: -3 significa 1 tomo en 3 días)'
+                      : 'Número de capítulos que verás por día',
                 ),
                 keyboardType: TextInputType.number,
                 validator: (value) {
@@ -209,8 +213,16 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
                     return 'La frecuencia es requerida';
                   }
                   final intValue = int.tryParse(value);
-                  if (intValue == null || intValue < 1) {
-                    return 'La frecuencia debe ser un número mayor a 0';
+                  if (_selectedType == 'lectura') {
+                    // Para lectura: permitir valores negativos (días por tomo)
+                    if (intValue == null || intValue > -1) {
+                      return 'Para lectura, usa un valor negativo (ej: -3 significa 1 tomo en 3 días)';
+                    }
+                  } else {
+                    // Para video: valor positivo (capítulos por día)
+                    if (intValue == null || intValue < 1) {
+                      return 'La frecuencia debe ser un número mayor a 0';
+                    }
                   }
                   return null;
                 },
@@ -220,10 +232,12 @@ class _SeriesAnimeCategoryDialogState extends State<SeriesAnimeCategoryDialog> {
               // Campo de número de series
               TextFormField(
                 controller: _numberOfSeriesController,
-                decoration: const InputDecoration(
-                  labelText: 'Número de series',
+                decoration: InputDecoration(
+                  labelText: _selectedType == 'lectura' 
+                      ? 'Número de libros/mangas' 
+                      : 'Número de series',
                   hintText: 'Ej: 2',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,
                 validator: (value) {

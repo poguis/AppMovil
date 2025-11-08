@@ -95,9 +95,36 @@ class SeriesAnimeCategory {
   }
 
   // Calcular capítulos de atraso
+  // Para video: frecuencia positiva (capítulos por día)
+  // Para lectura: frecuencia negativa (días por tomo) - cuenta tomos, no capítulos
   int getChaptersBehind() {
-    return getDaysBehind() * frequency;
+    if (type == 'lectura') {
+      // Para lectura: calcular tomos de atraso
+      // frequency es negativo (ej: -3 significa 1 tomo en 3 días)
+      final daysPerTomo = frequency.abs();
+      final validDays = getDaysBehind();
+      // Calcular cuántos tomos deberían haberse leído
+      final expectedTomos = validDays ~/ daysPerTomo;
+      return expectedTomos;
+    } else {
+      // Para video: capítulos por día
+      return getDaysBehind() * frequency;
+    }
   }
+  
+  // Obtener días por tomo (solo para lectura)
+  int getDaysPerTomo() {
+    if (type == 'lectura') {
+      return frequency.abs();
+    }
+    return 1; // No aplica para video
+  }
+  
+  // Verificar si es categoría de lectura
+  bool get isReadingCategory => type == 'lectura';
+  
+  // Verificar si es categoría de video
+  bool get isVideoCategory => type == 'video';
 
   // Obtener el próximo día para ver capítulos
   DateTime? getNextViewingDay() {

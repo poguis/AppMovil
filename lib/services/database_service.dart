@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 9;
+  static const int _databaseVersion = 11;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -196,6 +196,24 @@ class DatabaseService {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (season_id) REFERENCES seasons (id) ON DELETE CASCADE,
         UNIQUE(season_id, episode_number)
+      )
+    ''');
+
+    // Tabla de items pendientes (películas, series, anime)
+    await db.execute('''
+      CREATE TABLE pending_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL CHECK (type IN ('pelicula', 'serie', 'anime')),
+        title TEXT NOT NULL,
+        year INTEGER,
+        start_date TEXT,
+        end_date TEXT,
+        is_ongoing INTEGER NOT NULL DEFAULT 0,
+        series_format TEXT CHECK (series_format IN ('format24min', 'format40min')),
+        status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'mirando', 'visto')),
+        watched_date TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
 
@@ -449,6 +467,43 @@ class DatabaseService {
       } catch (e) {
         // Si ya existe, SQLite lanzará error; lo ignoramos de forma segura
         print('display_order ya existe o no se pudo agregar: $e');
+      }
+    }
+
+    if (oldVersion < 10) {
+      // Agregar tabla de items pendientes
+      final tableExists = await _tableExists(db, 'pending_items');
+      if (!tableExists) {
+        await db.execute('''
+          CREATE TABLE pending_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL CHECK (type IN ('pelicula', 'serie', 'anime')),
+            title TEXT NOT NULL,
+            year INTEGER,
+            start_date TEXT,
+            end_date TEXT,
+            is_ongoing INTEGER NOT NULL DEFAULT 0,
+            series_format TEXT CHECK (series_format IN ('format24min', 'format40min')),
+            status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'mirando', 'visto')),
+            watched_date TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          )
+        ''');
+        print('Tabla pending_items creada exitosamente');
+      } else {
+        print('Tabla pending_items ya existe, saltando creación');
+      }
+    }
+
+    if (oldVersion < 11) {
+      // Agregar columna series_format a la tabla pending_items
+      try {
+        await db.execute('ALTER TABLE pending_items ADD COLUMN series_format TEXT CHECK (series_format IN (\'format24min\', \'format40min\'))');
+        print('Columna series_format agregada a la tabla pending_items');
+      } catch (e) {
+        // Si ya existe, SQLite lanzará error; lo ignoramos de forma segura
+        print('series_format ya existe o no se pudo agregar: $e');
       }
     }
   }
