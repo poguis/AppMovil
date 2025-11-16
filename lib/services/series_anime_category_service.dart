@@ -150,17 +150,44 @@ class SeriesAnimeCategoryService {
           // Verificar si hay capítulos con watchDate anterior al startWatchingDate
           // Si los hay, significa que se agregó nueva temporada a una serie que ya tenía capítulos vistos
           bool hasNewTemporada = false;
+          bool wasActiveBeforeNewSeason = false; // Indica si la serie fue activa antes de agregar nueva temporada
           if (series.startWatchingDate != null) {
             // Verificar todos los episodios de la serie para detectar nueva temporada
             final allSeriesEpisodes = <Episode>[];
+            DateTime? oldestWatchDate;
+            DateTime? newestWatchDateBeforeStart;
             for (final s in seasons) {
               final eps = await SeriesService.getEpisodesBySeason(s.id!);
               allSeriesEpisodes.addAll(eps);
+              // Encontrar la fecha más antigua y más reciente de visualización ANTES del startWatchingDate
+              for (final ep in eps) {
+                if (ep.watchDate != null) {
+                  if (oldestWatchDate == null || ep.watchDate!.isBefore(oldestWatchDate)) {
+                    oldestWatchDate = ep.watchDate;
+                  }
+                  // Si el watchDate es anterior al startWatchingDate, verificar si fue activa
+                  if (ep.watchDate!.isBefore(series.startWatchingDate!)) {
+                    if (newestWatchDateBeforeStart == null || ep.watchDate!.isAfter(newestWatchDateBeforeStart)) {
+                      newestWatchDateBeforeStart = ep.watchDate;
+                    }
+                  }
+                }
+              }
             }
             // Si hay algún episodio con watchDate anterior al startWatchingDate, 
             // significa que se agregó nueva temporada
             hasNewTemporada = allSeriesEpisodes.any((ep) => 
               ep.watchDate != null && ep.watchDate!.isBefore(series.startWatchingDate!));
+            
+            // Si hay nueva temporada, verificar si la serie fue activa antes:
+            // Si los capítulos vistos tienen watchDate distribuidos en el tiempo (diferencia > 1 hora),
+            // entonces fue activa. Si todos tienen watchDate muy cercanos, fue creada como terminada.
+            if (hasNewTemporada && oldestWatchDate != null && newestWatchDateBeforeStart != null) {
+              final timeSpan = newestWatchDateBeforeStart.difference(oldestWatchDate);
+              // Si hay una diferencia de al menos 1 hora entre el capítulo más antiguo y el más reciente
+              // antes del nuevo startWatchingDate, entonces fue activa
+              wasActiveBeforeNewSeason = timeSpan.inHours >= 1;
+            }
           }
           
           for (final season in seasons) {
@@ -170,12 +197,31 @@ class SeriesAnimeCategoryService {
                               episodes.every((ep) => ep.status == EpisodeStatus.visto && ep.watchDate != null);
             
             if (allWatched) {
-              // Si tiene nueva temporada agregada (hasNewTemporada), contar TODOS los tomos vistos
-              // (porque los antiguos ya estaban contados cuando la serie estaba terminada)
+              // Si tiene nueva temporada agregada (hasNewTemporada):
+              // - Si la serie fue activa antes (wasActiveBeforeNewSeason), los tomos vistos ANTES del nuevo startWatchingDate
+              //   SÍ deben contar porque fueron vistos durante el período activo (ya estaban contados)
+              // - Si la serie fue creada como terminada, los tomos vistos ANTES del nuevo startWatchingDate
+              //   NO deben contar porque nunca se contaron en el período activo
               // Si no tiene nueva temporada, aplicar el filtro de startWatchingDate normalmente
-              if (hasNewTemporada) {
-                // Tiene nueva temporada: contar todos los tomos vistos (antiguos + nuevos)
-                watchedTomos++;
+              if (hasNewTemporada && series.status == SeriesStatus.mirando && series.startWatchingDate != null) {
+                if (wasActiveBeforeNewSeason) {
+                  // La serie fue activa antes: los tomos vistos ANTES del nuevo startWatchingDate
+                  // ya estaban contados cuando la serie estaba activa, así que SÍ deben contar
+                  watchedTomos++;
+                } else {
+                  // La serie fue creada como terminada: los tomos vistos ANTES del nuevo startWatchingDate
+                  // NO deben contar porque nunca se contaron en el período activo
+                  // Solo contar tomos vistos DESPUÉS del nuevo startWatchingDate
+                  final lastEpisodeDate = episodes
+                      .where((ep) => ep.watchDate != null)
+                      .map((ep) => ep.watchDate!)
+                      .reduce((a, b) => a.isAfter(b) ? a : b);
+                  
+                  if (lastEpisodeDate.isAfter(series.startWatchingDate!)) {
+                    watchedTomos++;
+                  }
+                  // Si el tomo fue visto antes del nuevo startWatchingDate, no cuenta (nunca se contó en el período activo)
+                }
               } else if (series.status == SeriesStatus.mirando && series.startWatchingDate != null) {
                 // Serie activa con startWatchingDate y SIN nueva temporada: verificar que el tomo se haya visto después
                 final lastEpisodeDate = episodes
@@ -188,7 +234,7 @@ class SeriesAnimeCategoryService {
                 }
                 watchedTomos++;
               } else {
-                // Para series sin startWatchingDate o tomos que cumplen las condiciones, contar
+                // Para series terminadas sin nueva temporada, o series sin startWatchingDate, contar normalmente
                 watchedTomos++;
               }
             }
@@ -229,17 +275,44 @@ class SeriesAnimeCategoryService {
           // Verificar si hay capítulos con watchDate anterior al startWatchingDate
           // Si los hay, significa que se agregó nueva temporada a una serie que ya tenía capítulos vistos
           bool hasNewTemporada = false;
+          bool wasActiveBeforeNewSeason = false; // Indica si la serie fue activa antes de agregar nueva temporada
           if (series.startWatchingDate != null) {
             // Verificar todos los episodios de la serie para detectar nueva temporada
             final allSeriesEpisodes = <Episode>[];
+            DateTime? oldestWatchDate;
+            DateTime? newestWatchDateBeforeStart;
             for (final s in seasons) {
               final eps = await SeriesService.getEpisodesBySeason(s.id!);
               allSeriesEpisodes.addAll(eps);
+              // Encontrar la fecha más antigua y más reciente de visualización ANTES del startWatchingDate
+              for (final ep in eps) {
+                if (ep.watchDate != null) {
+                  if (oldestWatchDate == null || ep.watchDate!.isBefore(oldestWatchDate)) {
+                    oldestWatchDate = ep.watchDate;
+                  }
+                  // Si el watchDate es anterior al startWatchingDate, verificar si fue activa
+                  if (ep.watchDate!.isBefore(series.startWatchingDate!)) {
+                    if (newestWatchDateBeforeStart == null || ep.watchDate!.isAfter(newestWatchDateBeforeStart)) {
+                      newestWatchDateBeforeStart = ep.watchDate;
+                    }
+                  }
+                }
+              }
             }
             // Si hay algún episodio con watchDate anterior al startWatchingDate, 
             // significa que se agregó nueva temporada
             hasNewTemporada = allSeriesEpisodes.any((ep) => 
               ep.watchDate != null && ep.watchDate!.isBefore(series.startWatchingDate!));
+            
+            // Si hay nueva temporada, verificar si la serie fue activa antes:
+            // Si los capítulos vistos tienen watchDate distribuidos en el tiempo (diferencia > 1 hora),
+            // entonces fue activa. Si todos tienen watchDate muy cercanos, fue creada como terminada.
+            if (hasNewTemporada && oldestWatchDate != null && newestWatchDateBeforeStart != null) {
+              final timeSpan = newestWatchDateBeforeStart.difference(oldestWatchDate);
+              // Si hay una diferencia de al menos 1 hora entre el capítulo más antiguo y el más reciente
+              // antes del nuevo startWatchingDate, entonces fue activa
+              wasActiveBeforeNewSeason = timeSpan.inHours >= 1;
+            }
           }
           
           for (final season in seasons) {
@@ -267,16 +340,38 @@ class SeriesAnimeCategoryService {
               }
             } else {
               // Activa (mirando): después del punto actual
-              // Si tiene nueva temporada agregada (hasNewTemporada), contar TODOS los capítulos vistos
-              // (porque los antiguos ya estaban contados cuando la serie estaba terminada)
+              // Si tiene nueva temporada agregada (hasNewTemporada):
+              // - Si la serie fue activa antes (wasActiveBeforeNewSeason), los capítulos vistos ANTES del nuevo startWatchingDate
+              //   SÍ deben contar porque fueron vistos durante el período activo (ya estaban contados)
+              // - Si la serie fue creada como terminada, los capítulos vistos ANTES del nuevo startWatchingDate
+              //   NO deben contar porque nunca se contaron en el período activo
               // Si no tiene nueva temporada, aplicar el filtro de startWatchingDate normalmente
               for (final e in episodes) {
                 if (e.status == EpisodeStatus.visto && e.watchDate != null) {
-                  // Si tiene nueva temporada agregada, contar TODOS los capítulos vistos
-                  // (los antiguos ya estaban contados cuando estaba terminada)
-                  // NO aplicar la restricción atOrAfterPoint cuando hay nueva temporada
-                  if (hasNewTemporada) {
-                    watchedChapters++;
+                  if (hasNewTemporada && series.startWatchingDate != null) {
+                    // Tiene nueva temporada: verificar si la serie fue activa antes
+                    if (wasActiveBeforeNewSeason) {
+                      // La serie fue activa antes: los capítulos vistos ANTES del nuevo startWatchingDate
+                      // ya estaban contados cuando la serie estaba activa, así que SÍ deben contar
+                      // Contar TODOS los capítulos vistos, pero solo los que están en o después del punto actual
+                      final atOrAfterPoint = season.seasonNumber > series.currentSeason ||
+                          (season.seasonNumber == series.currentSeason && e.episodeNumber >= series.currentEpisode);
+                      if (atOrAfterPoint) {
+                        watchedChapters++;
+                      }
+                    } else {
+                      // La serie fue creada como terminada: los capítulos vistos ANTES del nuevo startWatchingDate
+                      // NO deben contar porque nunca se contaron en el período activo
+                      // Solo contar capítulos vistos DESPUÉS del nuevo startWatchingDate
+                      if (e.watchDate!.isAfter(series.startWatchingDate!)) {
+                        // También verificar que esté en o después del punto actual
+                        final atOrAfterPoint = season.seasonNumber > series.currentSeason ||
+                            (season.seasonNumber == series.currentSeason && e.episodeNumber >= series.currentEpisode);
+                        if (atOrAfterPoint) {
+                          watchedChapters++;
+                        }
+                      }
+                    }
                   } else {
                     // Si NO tiene nueva temporada, aplicar el filtro de punto actual y startWatchingDate
                     // Contabilizar capítulos vistos en o después del punto actual
