@@ -173,7 +173,7 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Capítulo marcado como visto'),
+            content: Text('Capítulo marcado como visto.'),
             backgroundColor: Colors.green,
           ),
         );

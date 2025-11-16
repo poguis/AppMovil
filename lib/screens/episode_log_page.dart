@@ -418,7 +418,7 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildStatCard('Total', stats['total']!),
-                    _buildStatCard('Vistos', stats['watched']!),
+                    _buildStatCard('Vistoss', stats['watched']!),
                     _buildStatCard('Pendientes', stats['pending']!),
                   ],
                 );
@@ -431,7 +431,7 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
               segments: const [
                 ButtonSegment(value: 'all', label: Text('Todos'), icon: Icon(Icons.list)),
                 ButtonSegment(value: 'pending', label: Text('Pendientes'), icon: Icon(Icons.watch_later)),
-                ButtonSegment(value: 'watched', label: Text('Vistos'), icon: Icon(Icons.check_circle)),
+                ButtonSegment(value: 'watched', label: Text('Vistoss'), icon: Icon(Icons.check_circle)),
               ],
               selected: {_selectedFilter},
               onSelectionChanged: (Set<String> newSelection) {
