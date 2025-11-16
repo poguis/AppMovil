@@ -897,6 +897,12 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     final isSelected = _selectedStatus == value;
     final chipColor = color ?? Colors.grey;
     
+    // Contar series terminadas para el historial
+    int? count;
+    if (value == 'historial') {
+      count = _series.where((series) => series.status == SeriesStatus.terminada).length;
+    }
+    
     return FilterChip(
       selected: isSelected,
       label: Row(
@@ -905,6 +911,24 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           Icon(icon, size: 16, color: isSelected ? Colors.white : chipColor),
           const SizedBox(width: 4),
           Text(label),
+          if (count != null) ...[
+            const SizedBox(width: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.white.withOpacity(0.3) : chipColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.white : chipColor,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
       onSelected: (selected) {

@@ -643,6 +643,12 @@ class SeriesService {
 
   // Actualizar serie con sus temporadas y episodios
   static Future<void> updateSeriesWithSeasons(Series series, List<Map<String, dynamic>> seasonsData) async {
+    // Obtener el estado actual de la serie desde la base de datos
+    final currentSeries = await getSeriesById(series.id!);
+    if (currentSeries == null) return;
+    
+    final originalStatus = currentSeries.status; // Guardar el estado original
+    
     // Primero actualizar la serie
     await updateSeries(series);
 
@@ -708,6 +714,26 @@ class SeriesService {
         await updateSeasonWatchedCount(seasonId);
       } else {
         // Nueva temporada - crear
+        // Si la serie estaba terminada o en espera originalmente, cambiar automáticamente a "Mirando"
+        // y establecer un nuevo startWatchingDate para que solo se cuenten los tomos/capítulos
+        // vistos DESPUÉS de agregar este nuevo tomo
+        if (originalStatus == SeriesStatus.terminada || originalStatus == SeriesStatus.enEspera) {
+          final now = DateTime.now();
+          // Obtener la serie actualizada desde la base de datos
+          final currentSeriesAfterUpdate = await getSeriesById(series.id!);
+          if (currentSeriesAfterUpdate != null) {
+            final updatedSeries = currentSeriesAfterUpdate.copyWith(
+              status: SeriesStatus.mirando,
+              startWatchingDate: now, // Nuevo punto de inicio, no mantener el anterior
+              finishWatchingDate: null, // Limpiar fecha de finalización
+              currentSeason: seasonNumber,
+              currentEpisode: 1,
+              updatedAt: now,
+            );
+            await updateSeries(updatedSeries);
+          }
+        }
+        
         final now = DateTime.now();
         final newSeason = Season(
           seriesId: series.id!,

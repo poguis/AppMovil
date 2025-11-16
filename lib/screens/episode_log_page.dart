@@ -29,6 +29,7 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
   bool _isEditMode = false;
   String? _categoryType; // 'video' o 'lectura'
   int? _lastServedSeriesId; // serie que acaba de consumir un capítulo/tomo
+  int _chaptersBehind = 0; // Capítulos/tomos de atraso para resaltar visualmente
 
   @override
   void initState() {
@@ -45,9 +46,15 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
       // Obtener tipo de categoría para decidir intercalado
       final category = await SeriesAnimeCategoryService.getCategoryById(widget.categoryId);
       _categoryType = category?.type;
+      
+      // Obtener el atraso para resaltar visualmente
+      final delayInfo = await SeriesAnimeCategoryService.calculateRealDelay(widget.categoryId);
+      final chaptersBehind = delayInfo['chaptersBehind'] ?? 0;
+      
       final episodes = await EpisodeLogService.getEpisodesByCategory(widget.categoryId);
       setState(() {
         _allEpisodes = episodes;
+        _chaptersBehind = chaptersBehind;
         // Intercalar TODOS los episodios una sola vez (vistos + pendientes)
         _allEpisodesIntercalated = (_categoryType == 'lectura')
             ? _intercalateByVolumes(episodes)
@@ -463,9 +470,11 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
                             },
                             itemBuilder: (context, index) {
                               final episode = _filteredEpisodes[index];
+                              final isBehind = _isEpisodeBehind(episode, index);
                               return Card(
                                 key: ValueKey(episode.episodeId),
                                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                color: isBehind ? Colors.orange.withOpacity(0.2) : null,
                                 child: ListTile(
                                   leading: Icon(
                                     Icons.drag_handle,
@@ -490,8 +499,10 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
                             itemCount: _filteredEpisodes.length,
                             itemBuilder: (context, index) {
                               final episode = _filteredEpisodes[index];
+                              final isBehind = _isEpisodeBehind(episode, index);
                               return Card(
                                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                color: isBehind ? Colors.orange.withOpacity(0.2) : null,
                                 child: ListTile(
                                   leading: Icon(
                                     episode.statusIcon,
@@ -535,5 +546,59 @@ class _EpisodeLogPageState extends State<EpisodeLogPage> {
         ),
       ],
     );
+  }
+
+  // Determinar si un episodio está atrasado (para resaltar visualmente)
+  bool _isEpisodeBehind(EpisodeLogEntry episode, int index) {
+    // Solo resaltar si hay atraso y el episodio está pendiente
+    if (_chaptersBehind <= 0 || episode.isWatched) {
+      return false;
+    }
+
+    if (_categoryType == 'lectura') {
+      // Para Lectura: resaltar todos los capítulos de los primeros N tomos pendientes
+      // Necesitamos obtener la lista de tomos pendientes ordenados
+      final pendingEpisodes = _filteredEpisodes.where((e) => e.isPending).toList();
+      
+      // Agrupar por serie y tomo (seasonNumber)
+      final Map<String, List<EpisodeLogEntry>> tomoMap = {};
+      for (final ep in pendingEpisodes) {
+        final key = '${ep.seriesId}_${ep.seasonNumber}';
+        if (!tomoMap.containsKey(key)) {
+          tomoMap[key] = [];
+        }
+        tomoMap[key]!.add(ep);
+      }
+      
+      // Ordenar los tomos por orden de visualización y número de tomo
+      final sortedTomos = tomoMap.entries.toList()
+        ..sort((a, b) {
+          final aFirst = a.value.first;
+          final bFirst = b.value.first;
+          if (aFirst.seriesDisplayOrder != bFirst.seriesDisplayOrder) {
+            return aFirst.seriesDisplayOrder.compareTo(bFirst.seriesDisplayOrder);
+          }
+          return aFirst.seasonNumber.compareTo(bFirst.seasonNumber);
+        });
+      
+      // Verificar si este episodio pertenece a uno de los primeros N tomos
+      int tomoIndex = 0;
+      for (final tomoEntry in sortedTomos) {
+        if (tomoIndex >= _chaptersBehind) break;
+        
+        final tomoEpisodes = tomoEntry.value;
+        if (tomoEpisodes.any((e) => e.episodeId == episode.episodeId)) {
+          return true;
+        }
+        tomoIndex++;
+      }
+      
+      return false;
+    } else {
+      // Para Video: resaltar los primeros N episodios pendientes
+      final pendingEpisodes = _filteredEpisodes.where((e) => e.isPending).toList();
+      final episodeIndex = pendingEpisodes.indexWhere((e) => e.episodeId == episode.episodeId);
+      return episodeIndex >= 0 && episodeIndex < _chaptersBehind;
+    }
   }
 }

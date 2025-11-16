@@ -31,8 +31,8 @@ class PendingItem {
   final PendingItemType type;
   final String title;
   final int? year; // Para películas
-  final DateTime? startDate; // Para series/anime
-  final DateTime? endDate; // Para series/anime (null si está en emisión)
+  final int? startYear; // Para series/anime: año de inicio
+  final int? endYear; // Para series/anime: año de fin (null si está en emisión)
   final bool isOngoing; // Para series/anime: true si está en emisión
   final SeriesFormat? seriesFormat; // Para series: 24 min o 40 min
   final PendingItemStatus status;
@@ -45,8 +45,8 @@ class PendingItem {
     required this.type,
     required this.title,
     this.year,
-    this.startDate,
-    this.endDate,
+    this.startYear,
+    this.endYear,
     this.isOngoing = false,
     this.seriesFormat,
     required this.status,
@@ -61,8 +61,8 @@ class PendingItem {
       'type': type.name,
       'title': title,
       'year': year,
-      'start_date': startDate?.toIso8601String(),
-      'end_date': endDate?.toIso8601String(),
+      'start_year': startYear,
+      'end_year': endYear,
       'is_ongoing': isOngoing ? 1 : 0,
       'series_format': seriesFormat?.name,
       'status': status.name,
@@ -81,12 +81,14 @@ class PendingItem {
       ),
       title: map['title'] as String,
       year: map['year'] as int?,
-      startDate: map['start_date'] != null
-          ? DateTime.parse(map['start_date'] as String)
-          : null,
-      endDate: map['end_date'] != null
-          ? DateTime.parse(map['end_date'] as String)
-          : null,
+      startYear: map['start_year'] as int? ?? 
+          (map['start_date'] != null 
+              ? DateTime.tryParse(map['start_date'] as String)?.year 
+              : null),
+      endYear: map['end_year'] as int? ?? 
+          (map['end_date'] != null 
+              ? DateTime.tryParse(map['end_date'] as String)?.year 
+              : null),
       isOngoing: (map['is_ongoing'] as int? ?? 0) == 1,
       seriesFormat: map['series_format'] != null
           ? SeriesFormat.values.firstWhere(
@@ -165,25 +167,21 @@ class PendingItem {
       }
       
       if (isOngoing) {
-        return startDate != null
-            ? 'En emisión desde ${_formatDate(startDate!)}$formatInfo'
+        return startYear != null
+            ? 'En emisión desde $startYear$formatInfo'
             : 'En emisión$formatInfo';
       } else {
-        if (startDate != null && endDate != null) {
-          return '${_formatDate(startDate!)} - ${_formatDate(endDate!)}$formatInfo';
-        } else if (startDate != null) {
-          return 'Inicio: ${_formatDate(startDate!)}$formatInfo';
-        } else if (endDate != null) {
-          return 'Fin: ${_formatDate(endDate!)}$formatInfo';
+        if (startYear != null && endYear != null) {
+          return '$startYear - $endYear$formatInfo';
+        } else if (startYear != null) {
+          return 'Inicio: $startYear$formatInfo';
+        } else if (endYear != null) {
+          return 'Fin: $endYear$formatInfo';
         } else {
-          return 'Sin fechas$formatInfo';
+          return 'Sin año$formatInfo';
         }
       }
     }
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 
   PendingItem copyWith({
@@ -191,8 +189,8 @@ class PendingItem {
     PendingItemType? type,
     String? title,
     int? year,
-    DateTime? startDate,
-    DateTime? endDate,
+    int? startYear,
+    int? endYear,
     bool? isOngoing,
     SeriesFormat? seriesFormat,
     PendingItemStatus? status,
@@ -205,8 +203,8 @@ class PendingItem {
       type: type ?? this.type,
       title: title ?? this.title,
       year: year ?? this.year,
-      startDate: startDate ?? this.startDate,
-      endDate: endDate ?? this.endDate,
+      startYear: startYear ?? this.startYear,
+      endYear: endYear ?? this.endYear,
       isOngoing: isOngoing ?? this.isOngoing,
       seriesFormat: seriesFormat ?? this.seriesFormat,
       status: status ?? this.status,

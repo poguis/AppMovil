@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 class DatabaseService {
   static Database? _database;
   static const String _databaseName = 'app_database.db';
-  static const int _databaseVersion = 11;
+  static const int _databaseVersion = 12;
 
   // Obtener la instancia de la base de datos
   static Future<Database> get database async {
@@ -206,8 +206,8 @@ class DatabaseService {
         type TEXT NOT NULL CHECK (type IN ('pelicula', 'serie', 'anime')),
         title TEXT NOT NULL,
         year INTEGER,
-        start_date TEXT,
-        end_date TEXT,
+        start_year INTEGER,
+        end_year INTEGER,
         is_ongoing INTEGER NOT NULL DEFAULT 0,
         series_format TEXT CHECK (series_format IN ('format24min', 'format40min')),
         status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'mirando', 'visto')),
@@ -480,8 +480,8 @@ class DatabaseService {
             type TEXT NOT NULL CHECK (type IN ('pelicula', 'serie', 'anime')),
             title TEXT NOT NULL,
             year INTEGER,
-            start_date TEXT,
-            end_date TEXT,
+            start_year INTEGER,
+            end_year INTEGER,
             is_ongoing INTEGER NOT NULL DEFAULT 0,
             series_format TEXT CHECK (series_format IN ('format24min', 'format40min')),
             status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'mirando', 'visto')),
@@ -504,6 +504,95 @@ class DatabaseService {
       } catch (e) {
         // Si ya existe, SQLite lanzará error; lo ignoramos de forma segura
         print('series_format ya existe o no se pudo agregar: $e');
+      }
+    }
+
+    if (oldVersion < 12) {
+      // Migrar de start_date/end_date a start_year/end_year
+      try {
+        // Verificar si las columnas start_date y end_date existen
+        final tableInfo = await db.rawQuery("PRAGMA table_info(pending_items)");
+        final hasStartDate = tableInfo.any((col) => col['name'] == 'start_date');
+        final hasStartYear = tableInfo.any((col) => col['name'] == 'start_year');
+        
+        if (hasStartDate && !hasStartYear) {
+          // Agregar nuevas columnas
+          await db.execute('ALTER TABLE pending_items ADD COLUMN start_year INTEGER');
+          await db.execute('ALTER TABLE pending_items ADD COLUMN end_year INTEGER');
+          
+          // Migrar datos: extraer el año de las fechas existentes
+          final items = await db.query('pending_items', 
+            columns: ['id', 'start_date', 'end_date']);
+          
+          for (final item in items) {
+            final id = item['id'] as int;
+            int? startYear;
+            int? endYear;
+            
+            if (item['start_date'] != null) {
+              try {
+                final date = DateTime.parse(item['start_date'] as String);
+                startYear = date.year;
+              } catch (e) {
+                print('Error parseando start_date: $e');
+              }
+            }
+            
+            if (item['end_date'] != null) {
+              try {
+                final date = DateTime.parse(item['end_date'] as String);
+                endYear = date.year;
+              } catch (e) {
+                print('Error parseando end_date: $e');
+              }
+            }
+            
+            await db.update('pending_items', 
+              {'start_year': startYear, 'end_year': endYear},
+              where: 'id = ?',
+              whereArgs: [id]);
+          }
+          
+          // Eliminar las columnas antiguas (SQLite no soporta DROP COLUMN directamente,
+          // así que recreamos la tabla sin esas columnas)
+          await db.execute('''
+            CREATE TABLE pending_items_new (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              type TEXT NOT NULL CHECK (type IN ('pelicula', 'serie', 'anime')),
+              title TEXT NOT NULL,
+              year INTEGER,
+              start_year INTEGER,
+              end_year INTEGER,
+              is_ongoing INTEGER NOT NULL DEFAULT 0,
+              series_format TEXT CHECK (series_format IN ('format24min', 'format40min')),
+              status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'mirando', 'visto')),
+              watched_date TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+          
+          await db.execute('''
+            INSERT INTO pending_items_new 
+            (id, type, title, year, start_year, end_year, is_ongoing, series_format, status, watched_date, created_at, updated_at)
+            SELECT id, type, title, year, start_year, end_year, is_ongoing, series_format, status, watched_date, created_at, updated_at
+            FROM pending_items
+          ''');
+          
+          await db.execute('DROP TABLE pending_items');
+          await db.execute('ALTER TABLE pending_items_new RENAME TO pending_items');
+          
+          print('Migración de start_date/end_date a start_year/end_year completada');
+        } else if (!hasStartYear) {
+          // Solo agregar las nuevas columnas si no existen
+          await db.execute('ALTER TABLE pending_items ADD COLUMN start_year INTEGER');
+          await db.execute('ALTER TABLE pending_items ADD COLUMN end_year INTEGER');
+          print('Columnas start_year y end_year agregadas a la tabla pending_items');
+        } else {
+          print('Las columnas start_year y end_year ya existen');
+        }
+      } catch (e) {
+        print('Error en migración de fechas a años: $e');
       }
     }
   }

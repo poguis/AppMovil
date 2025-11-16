@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../models/pending_item.dart';
 
 class PendingItemDialog extends StatefulWidget {
@@ -20,11 +19,11 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _yearController = TextEditingController();
+  final _startYearController = TextEditingController();
+  final _endYearController = TextEditingController();
 
   PendingItemType _selectedType = PendingItemType.pelicula;
   PendingItemStatus _selectedStatus = PendingItemStatus.pendiente;
-  DateTime? _startDate;
-  DateTime? _endDate;
   bool _isOngoing = false;
   SeriesFormat? _selectedSeriesFormat;
 
@@ -43,8 +42,8 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
     _selectedType = item.type;
     _selectedStatus = item.status;
     _yearController.text = item.year?.toString() ?? '';
-    _startDate = item.startDate;
-    _endDate = item.endDate;
+    _startYearController.text = item.startYear?.toString() ?? '';
+    _endYearController.text = item.endYear?.toString() ?? '';
     _isOngoing = item.isOngoing;
     _selectedSeriesFormat = item.seriesFormat;
   }
@@ -53,38 +52,9 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
   void dispose() {
     _titleController.dispose();
     _yearController.dispose();
+    _startYearController.dispose();
+    _endYearController.dispose();
     super.dispose();
-  }
-
-  Future<void> _selectStartDate() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _startDate ?? DateTime.now(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2100),
-    );
-    if (date != null) {
-      setState(() {
-        _startDate = date;
-        if (_endDate != null && _endDate!.isBefore(_startDate!)) {
-          _endDate = null;
-        }
-      });
-    }
-  }
-
-  Future<void> _selectEndDate() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _endDate ?? _startDate ?? DateTime.now(),
-      firstDate: _startDate ?? DateTime(1900),
-      lastDate: DateTime(2100),
-    );
-    if (date != null) {
-      setState(() {
-        _endDate = date;
-      });
-    }
   }
 
   void _submit() {
@@ -102,11 +72,11 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
         return;
       }
     } else {
-      // Series y anime requieren fecha de inicio
-      if (_startDate == null && !_isOngoing) {
+      // Series y anime requieren año de inicio (opcional si está en emisión)
+      if (_startYearController.text.trim().isEmpty && !_isOngoing) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('La fecha de inicio es obligatoria'),
+            content: Text('El año de inicio es obligatorio (o marca "En emisión")'),
             backgroundColor: Colors.red,
           ),
         );
@@ -133,9 +103,15 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
       year: _selectedType == PendingItemType.pelicula
           ? int.tryParse(_yearController.text.trim())
           : null,
-      startDate: _selectedType != PendingItemType.pelicula ? _startDate : null,
-      endDate: _selectedType != PendingItemType.pelicula && !_isOngoing
-          ? _endDate
+      startYear: _selectedType != PendingItemType.pelicula
+          ? (_startYearController.text.trim().isNotEmpty
+              ? int.tryParse(_startYearController.text.trim())
+              : null)
+          : null,
+      endYear: _selectedType != PendingItemType.pelicula && !_isOngoing
+          ? (_endYearController.text.trim().isNotEmpty
+              ? int.tryParse(_endYearController.text.trim())
+              : null)
           : null,
       isOngoing: _selectedType != PendingItemType.pelicula ? _isOngoing : false,
       seriesFormat: _selectedType == PendingItemType.serie ? _selectedSeriesFormat : null,
@@ -206,8 +182,8 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
                                 setState(() {
                               _selectedType = type;
                               if (type == PendingItemType.pelicula) {
-                                _startDate = null;
-                                _endDate = null;
+                                _startYearController.clear();
+                                _endYearController.clear();
                                 _isOngoing = false;
                                 _selectedSeriesFormat = null;
                               } else if (type != PendingItemType.serie) {
@@ -296,10 +272,10 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
                         const SizedBox(height: 16),
                       ],
 
-                      // Fechas (solo para series y anime)
+                      // Años (solo para series y anime)
                       if (isSeriesOrAnime) ...[
                         const Text(
-                          'Fechas',
+                          'Años',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
@@ -310,46 +286,55 @@ class _PendingItemDialogState extends State<PendingItemDialog> {
                             setState(() {
                               _isOngoing = value ?? false;
                               if (_isOngoing) {
-                                _endDate = null;
+                                _endYearController.clear();
                               }
                             });
                           },
                         ),
                         const SizedBox(height: 8),
-                        ListTile(
-                          leading: const Icon(Icons.calendar_today),
-                          title: Text(_startDate != null
-                              ? 'Inicio: ${DateFormat('dd/MM/yyyy').format(_startDate!)}'
-                              : 'Fecha de inicio'),
-                          trailing: _startDate != null
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    setState(() {
-                                      _startDate = null;
-                                    });
-                                  },
-                                )
-                              : null,
-                          onTap: _selectStartDate,
+                        TextFormField(
+                          controller: _startYearController,
+                          decoration: const InputDecoration(
+                            labelText: 'Año de inicio',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.calendar_today),
+                            helperText: 'Opcional si está en emisión',
+                          ),
+                          keyboardType: TextInputType.number,
+                          validator: (value) {
+                            if (value != null && value.trim().isNotEmpty) {
+                              final year = int.tryParse(value.trim());
+                              if (year == null || year < 1900 || year > 2100) {
+                                return 'Ingresa un año válido (1900-2100)';
+                              }
+                            }
+                            return null;
+                          },
                         ),
+                        const SizedBox(height: 16),
                         if (!_isOngoing)
-                          ListTile(
-                            leading: const Icon(Icons.event),
-                            title: Text(_endDate != null
-                                ? 'Fin: ${DateFormat('dd/MM/yyyy').format(_endDate!)}'
-                                : 'Fecha de terminación (opcional)'),
-                            trailing: _endDate != null
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear),
-                                    onPressed: () {
-                                      setState(() {
-                                        _endDate = null;
-                                      });
-                                    },
-                                  )
-                                : null,
-                            onTap: _selectEndDate,
+                          TextFormField(
+                            controller: _endYearController,
+                            decoration: const InputDecoration(
+                              labelText: 'Año de terminación (opcional)',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.event),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (value) {
+                              if (value != null && value.trim().isNotEmpty) {
+                                final year = int.tryParse(value.trim());
+                                if (year == null || year < 1900 || year > 2100) {
+                                  return 'Ingresa un año válido (1900-2100)';
+                                }
+                                // Validar que el año de fin no sea menor que el de inicio
+                                final startYear = int.tryParse(_startYearController.text.trim());
+                                if (startYear != null && year < startYear) {
+                                  return 'El año de fin debe ser mayor o igual al de inicio';
+                                }
+                              }
+                              return null;
+                            },
                           ),
                         const SizedBox(height: 16),
                       ],

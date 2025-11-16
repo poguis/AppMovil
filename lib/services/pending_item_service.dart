@@ -156,21 +156,28 @@ class PendingItemService {
       whereArgs.add(status.name);
     }
     
-    // Validar orderBy
-    final validOrderBy = ['title', 'created_at', 'year', 'start_date', 'end_date', 'watched_date'];
-    final orderByColumn = validOrderBy.contains(orderBy) ? orderBy : 'title';
+    // Validar orderBy - mapear nombres antiguos a nuevos si es necesario
+    String orderByColumn = orderBy;
+    if (orderBy == 'start_date') {
+      orderByColumn = 'start_year';
+    } else if (orderBy == 'end_date') {
+      orderByColumn = 'end_year';
+    }
+    
+    final validOrderBy = ['title', 'created_at', 'year', 'start_year', 'end_year', 'watched_date'];
+    orderByColumn = validOrderBy.contains(orderByColumn) ? orderByColumn : 'title';
     final orderDirection = ascending ? 'ASC' : 'DESC';
     
     // Para campos que pueden ser NULL, usar una expresión que maneje NULLs
     // SQLite ordena NULLs al final por defecto en ASC y al inicio en DESC
     // Para consistencia, siempre ponemos NULLs al final usando una subexpresión
     String orderByClause;
-    if (orderByColumn == 'year') {
-      // Para año, usar un valor grande para NULLs (siempre al final)
+    if (orderByColumn == 'year' || orderByColumn == 'start_year' || orderByColumn == 'end_year') {
+      // Para años, usar un valor grande para NULLs (siempre al final)
       orderByClause = ascending 
           ? 'CASE WHEN $orderByColumn IS NULL THEN 1 ELSE 0 END ASC, $orderByColumn $orderDirection'
           : 'CASE WHEN $orderByColumn IS NULL THEN 1 ELSE 0 END ASC, $orderByColumn $orderDirection';
-    } else if (orderByColumn == 'start_date' || orderByColumn == 'end_date' || orderByColumn == 'watched_date') {
+    } else if (orderByColumn == 'watched_date') {
       // Para fechas, usar una fecha muy lejana para NULLs (siempre al final)
       orderByClause = ascending 
           ? 'CASE WHEN $orderByColumn IS NULL THEN 1 ELSE 0 END ASC, $orderByColumn $orderDirection'

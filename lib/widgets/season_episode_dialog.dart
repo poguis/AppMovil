@@ -111,9 +111,11 @@ class _SeasonEpisodeDialogState extends State<SeasonEpisodeDialog> {
         bool statusChanged = false;
         if (widget.series.status == SeriesStatus.terminada || 
             widget.series.status == SeriesStatus.enEspera) {
+          // Al agregar un nuevo tomo/temporada, establecer un nuevo startWatchingDate
+          // para que solo se cuenten los tomos/capítulos vistos DESPUÉS de este punto
           final updatedSeries = widget.series.copyWith(
             status: SeriesStatus.mirando,
-            startWatchingDate: widget.series.startWatchingDate ?? DateTime.now(),
+            startWatchingDate: DateTime.now(), // Nuevo punto de inicio, no mantener el anterior
             finishWatchingDate: null, // Limpiar fecha de finalización
             currentSeason: season.seasonNumber,
             currentEpisode: 1,

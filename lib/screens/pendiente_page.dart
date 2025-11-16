@@ -244,10 +244,22 @@ class _PendientePageState extends State<PendientePage> with SingleTickerProvider
                 _loadData();
               },
             ),
-            if (_selectedType == PendingItemType.pelicula)
+            RadioListTile<String>(
+              title: const Text('Año'),
+              value: 'year',
+              groupValue: _orderBy,
+              onChanged: (value) {
+                setState(() {
+                  _orderBy = value!;
+                });
+                Navigator.of(context).pop();
+                _loadData();
+              },
+            ),
+            if (_selectedType != PendingItemType.pelicula)
               RadioListTile<String>(
-                title: const Text('Año'),
-                value: 'year',
+                title: const Text('Año de inicio'),
+                value: 'start_year',
                 groupValue: _orderBy,
                 onChanged: (value) {
                   setState(() {
@@ -259,21 +271,8 @@ class _PendientePageState extends State<PendientePage> with SingleTickerProvider
               ),
             if (_selectedType != PendingItemType.pelicula)
               RadioListTile<String>(
-                title: const Text('Fecha de inicio'),
-                value: 'start_date',
-                groupValue: _orderBy,
-                onChanged: (value) {
-                  setState(() {
-                    _orderBy = value!;
-                  });
-                  Navigator.of(context).pop();
-                  _loadData();
-                },
-              ),
-            if (_selectedType != PendingItemType.pelicula)
-              RadioListTile<String>(
-                title: const Text('Fecha de terminación'),
-                value: 'end_date',
+                title: const Text('Año de terminación'),
+                value: 'end_year',
                 groupValue: _orderBy,
                 onChanged: (value) {
                   setState(() {
