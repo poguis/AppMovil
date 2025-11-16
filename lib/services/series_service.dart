@@ -724,8 +724,8 @@ class SeriesService {
           if (currentSeriesAfterUpdate != null) {
             final updatedSeries = currentSeriesAfterUpdate.copyWith(
               status: SeriesStatus.mirando,
-              startWatchingDate: now, // Nuevo punto de inicio, no mantener el anterior
-              finishWatchingDate: null, // Limpiar fecha de finalización
+              startWatchingDate: now, // Nuevo punto de inicio para la nueva temporada
+              // Mantener finishWatchingDate para que los capítulos antiguos sigan contando
               currentSeason: seasonNumber,
               currentEpisode: 1,
               updatedAt: now,
